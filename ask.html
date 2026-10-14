@@ -8,7 +8,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="icon" type="image/png" href="img/favicon.png">
   <meta name="theme-color" content="#c19937">
-  <link rel="stylesheet" href="css/style.css?v=20261015">
+  <link rel="stylesheet" href="css/style.css?v=20261015b">
 </head>
 <body>
   <header class="public-head">
@@ -25,9 +25,9 @@
           <div class="field"><label>מייל *</label><input id="email" type="email" required maxlength="120"></div>
           <div class="field"><label>טלפון</label><input id="phone" type="tel" maxlength="20"></div>
         </div>
-        <div class="field"><label>נושא</label><select id="topic"></select></div>
+        <div class="field"><label>קטגוריה</label><select id="topic"></select></div>
         <div class="field"><label>השאלה *</label><textarea id="text" required maxlength="5000" style="min-height:160px"></textarea></div>
-        <label class="check"><input type="checkbox" id="consent"> אני מאשר/ת לקבל עדכונים מהמכון במייל (אפשר להסיר בכל עת)</label>
+        <label class="check"><input type="checkbox" id="consent" required> אני מאשר/ת לקבל עדכונים מהמכון במייל (אפשר להסיר בכל עת) *</label>
         <p class="small muted">פרטיך ישמשו לצורך מענה לשאלה. שאלות עשויות להתפרסם במאגר השו"ת בעילום שם.</p>
         <button class="primary" type="submit" id="send">שליחת השאלה</button>
       </form>
@@ -38,6 +38,6 @@
       <button onclick="location.reload()">שאלה נוספת</button>
     </div>
   </main>
-  <script type="module" src="js/ask.js?v=20261015"></script>
+  <script type="module" src="js/ask.js?v=20261015b"></script>
 </body>
 </html>

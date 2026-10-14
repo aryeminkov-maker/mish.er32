@@ -7,8 +7,9 @@ import {
   onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  db, auth, configReady, esc, normEmail, normPhone, toDate, fmtDate, toast, setupMissingNotice, TOPICS
-} from "./common.js?v=20261015";
+  db, auth, configReady, esc, normEmail, normPhone, toDate, fmtDate, toast, setupMissingNotice,
+  DEFAULT_TAXONOMY, normTaxonomy, autoTagsFor
+} from "./common.js?v=20261015b";
 
 // ---------- קבועים ----------
 const STAFF_ROLES = ["admin", "head", "rabbi", "staff"];
@@ -33,7 +34,8 @@ const S = {
   loaded: { contacts: false, activities: false, questions: false },
   linking: new Set(),
   cf: { text: "", tag: "", consent: "", conds: [] },
-  qf: { status: "new", rabbi: "", text: "", topic: "" },
+  qf: { status: "new", rabbi: "", text: "", topic: "", tag: "" },
+  tax: normTaxonomy(DEFAULT_TAXONOMY), taxLoaded: false,
   unsub: []
 };
 const $ = (id) => document.getElementById(id);
@@ -104,6 +106,9 @@ async function handleAuth(u) {
 
 // ---------- נתונים ----------
 function subscribeAll() {
+  S.unsub.push(onSnapshot(doc(db, "settings", "taxonomy"), (snap) => {
+    S.tax = normTaxonomy(snap.exists() ? snap.data() : DEFAULT_TAXONOMY); S.taxLoaded = true; dataChanged();
+  }, () => { S.taxLoaded = true; }));
   const sub = (name, onDocs) => S.unsub.push(onSnapshot(collection(db, name), (snap) => onDocs(snap), (err) => toast("שגיאה בטעינת " + name + ": " + err.code, "bad")));
   sub("contacts", (snap) => {
     S.contacts.clear(); S.byEmail.clear(); S.byPhone.clear();
@@ -152,6 +157,14 @@ function dataChanged() {
 
 // קישור שאלות שהגיעו מהטופס הציבורי לכרטיס איש קשר (קיים או חדש)
 async function linkPendingQuestions() {
+  // תיוג אוטומטי לשאלות חדשות שעוד לא תויגו
+  if (S.taxLoaded) {
+    for (const q of S.questions.values()) {
+      if (q.autoTags !== undefined || S.linking.has("t:" + q.id)) continue;
+      S.linking.add("t:" + q.id);
+      updateDoc(doc(db, "questions", q.id), { autoTags: calcAutoTags(q.text, q.answer) }).catch(() => {});
+    }
+  }
   for (const q of S.questions.values()) {
     if (q.contactId || S.linking.has(q.id)) continue;
     S.linking.add(q.id);
@@ -222,7 +235,7 @@ function go(view) {
 function refreshView() { renderView(false); }
 
 function renderView(full) {
-  const views = { dashboard: renderDashboard, contacts: renderContacts, questions: renderQuestions, import: renderImport, users: renderUsers };
+  const views = { dashboard: renderDashboard, contacts: renderContacts, questions: renderQuestions, import: renderImport, users: renderUsers, settings: renderSettings };
   (views[S.view] || renderDashboard)(full);
 }
 
@@ -230,6 +243,16 @@ function renderView(full) {
 const fullName = (c) => [c?.firstName, c?.lastName].filter(Boolean).join(" ") || c?.email || "(ללא שם)";
 const consentOf = (c, ch = "Email") => c?.["consent" + ch]?.status || "unknown";
 const userName = (email) => (email ? S.users.get(email)?.name || email : "");
+// תגיות: ידניות (tags) + אוטומטיות לפי מילות מפתח (autoTags)
+const qTags = (q) => [...new Set([...(q.tags || []), ...(q.autoTags || [])])];
+const calcAutoTags = (text, answer) => autoTagsFor(`${text || ""} ${answer || ""}`, S.tax.tags);
+const sameList = (a, b) => (a || []).slice().sort().join("|") === (b || []).slice().sort().join("|");
+const tagBadges = (q) => qTags(q).map((t) => `<span class="badge brand">${esc(t)}</span>`).join("");
+const categoryOptions = (cur, withEmpty) => {
+  const cats = [...S.tax.categories];
+  if (cur && !cats.includes(cur)) cats.push(cur);
+  return (withEmpty ? '<option value="">ללא</option>' : "") + cats.map((t) => `<option ${t === cur ? "selected" : ""}>${esc(t)}</option>`).join("");
+};
 const rabbis = () => [...S.users.values()].filter((u) => ["rabbi", "head", "admin"].includes(u.role));
 
 function countsOf(contactId) {
@@ -704,6 +727,7 @@ function qCardHtml(q) {
     <div class="row space"><b>${esc([q.firstName, q.lastName].filter(Boolean).join(" ") || q.email || "שואל")}</b>
       <span><span class="badge ${Q_BADGE[q.status]}">${Q_STATUS[q.status]}</span>${q.topic ? `<span class="badge">${esc(q.topic)}</span>` : ""}</span></div>
     <div class="qtext">${esc(q.text)}</div>
+    ${qTags(q).length ? `<div>${tagBadges(q)}</div>` : ""}
     <div class="row space small"><span>${contextBadges(q.contactId, q.id)}</span>
       <span class="muted">${fmtDate(q.createdAt)}${q.rabbiEmail ? " · " + esc(userName(q.rabbiEmail)) : " · לא שויך"}</span></div>
   </div>`;
@@ -718,9 +742,10 @@ function filteredQuestions() {
     if (f.rabbi === "none" && q.rabbiEmail) return false;
     if (f.rabbi && !["mine", "none"].includes(f.rabbi) && q.rabbiEmail !== f.rabbi) return false;
     if (f.topic && q.topic !== f.topic) return false;
+    if (f.tag && !qTags(q).includes(f.tag)) return false;
     if (f.text) {
       const t = f.text.toLowerCase();
-      if (![q.text, q.answer, q.firstName, q.lastName, q.email].join(" ").toLowerCase().includes(t)) return false;
+      if (![q.text, q.answer, q.firstName, q.lastName, q.email, qTags(q).join(" ")].join(" ").toLowerCase().includes(t)) return false;
     }
     return true;
   }), "createdAt");
@@ -743,10 +768,12 @@ function renderQuestions(full) {
         <option value="">כל הרבנים</option><option value="mine">השאלות שלי</option><option value="none">לא שויכו</option>
         ${rabbis().map((r) => `<option value="${r.id}">${esc(userName(r.id))}</option>`).join("")}
       </select>
-      <select id="qTopic" style="width:auto"><option value="">כל הנושאים</option>${TOPICS.map((t) => `<option>${esc(t)}</option>`).join("")}</select>
+      <select id="qTopic" style="width:auto"><option value="">כל הקטגוריות</option>${S.tax.categories.map((t) => `<option>${esc(t)}</option>`).join("")}</select>
+      <select id="qTag" style="width:auto"><option value="">כל התגיות</option>${allTagNames().map((t) => `<option>${esc(t)}</option>`).join("")}</select>
     </div></div>
     <div class="qlist" id="qList"></div>`;
-  $("qRabbi").value = f.rabbi; $("qTopic").value = f.topic;
+  $("qRabbi").value = f.rabbi; $("qTopic").value = f.topic; $("qTag").value = f.tag;
+  $("qTag").onchange = (e) => { S.qf.tag = e.target.value; renderQList(); };
   $("qTabs").querySelectorAll("button").forEach((b) => (b.onclick = () => { S.qf.status = b.dataset.st; renderQuestions(true); }));
   $("qText").oninput = (e) => { S.qf.text = e.target.value; renderQList(); };
   $("qRabbi").onchange = (e) => { S.qf.rabbi = e.target.value; renderQList(); };
@@ -754,6 +781,12 @@ function renderQuestions(full) {
   $("btnExportQ").onclick = exportQuestions;
   $("btnNewQ").onclick = openManualQuestion;
   renderQList();
+}
+
+function allTagNames() {
+  const set = new Set(S.tax.tags.map((t) => t.name));
+  S.questions.forEach((q) => qTags(q).forEach((t) => set.add(t)));
+  return [...set].sort((a, b) => a.localeCompare(b, "he"));
 }
 
 function renderQList() {
@@ -771,7 +804,7 @@ function exportQuestions() {
     const n = q.contactId ? countsOf(q.contactId) : {};
     return {
       "תאריך": fmtDate(q.createdAt), "שם": [q.firstName, q.lastName].filter(Boolean).join(" "), "מייל": q.email || "", "טלפון": q.phone || "",
-      "נושא": q.topic || "", "שאלה": q.text || "", "סטטוס": Q_STATUS[q.status] || "", "רב": userName(q.rabbiEmail),
+      "קטגוריה": q.topic || "", "תגיות": qTags(q).join(", "), "שאלה": q.text || "", "סטטוס": Q_STATUS[q.status] || "", "רב": userName(q.rabbiEmail),
       "תשובה": q.answer || "", "תאריך מענה": fmtDate(q.answeredAt), "פורסם במאגר": q.publish ? "כן" : "לא",
       "תורם": n.donation ? "כן" : "", "משתתף השתלמויות": n.course ? "כן" : "", "מקור": q.origin || ""
     };
@@ -787,7 +820,7 @@ function openQuestion(id) {
     <div class="head"><h2>שאלה מאת ${esc(name)}</h2><button class="close" data-close>×</button></div>
     <div class="split">
       <div>
-        <p class="small muted">${fmtDate(q.createdAt)} · ${esc(q.topic || "ללא נושא")} · ${esc(q.origin || "")}</p>
+        <p class="small muted">${fmtDate(q.createdAt)} · ${esc(q.topic || "ללא קטגוריה")} · ${esc(q.origin || "")}</p>
         <div class="card pre" style="background:var(--surface-2)">${esc(q.text)}</div>
         <div class="field"><label>תשובה</label><textarea id="qAnswer" style="min-height:180px">${esc(q.answer)}</textarea></div>
         <div class="grid2">
@@ -795,9 +828,11 @@ function openQuestion(id) {
             ${rabbis().map((r) => `<option value="${r.id}" ${q.rabbiEmail === r.id ? "selected" : ""}>${esc(userName(r.id))}</option>`).join("")}</select></div>
           <div class="field"><label>סטטוס</label><select id="qStatusSel">
             ${Object.entries(Q_STATUS).map(([k, v]) => `<option value="${k}" ${q.status === k ? "selected" : ""}>${v}</option>`).join("")}</select></div>
-          <div class="field"><label>נושא</label><select id="qTopicSel"><option value="">ללא</option>
-            ${TOPICS.map((t) => `<option ${q.topic === t ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></div>
+          <div class="field"><label>קטגוריה</label><select id="qTopicSel">${categoryOptions(q.topic, true)}</select></div>
+          <div class="field"><label>תגיות ידניות (מופרדות בפסיק)</label><input id="qTagsIn" value="${esc((q.tags || []).join(", "))}" list="tagNames">
+            <datalist id="tagNames">${allTagNames().map((t) => `<option value="${esc(t)}">`).join("")}</datalist></div>
         </div>
+        <p class="small muted">תגיות אוטומטיות: <span id="qAutoTags">${(q.autoTags || []).map((t) => `<span class="badge brand">${esc(t)}</span>`).join("") || "אין"}</span></p>
         <details ${q.publish ? "open" : ""} class="card" style="padding:10px 14px">
           <summary>פרסום במאגר השו"ת הציבורי</summary>
           <label class="check" style="margin-top:8px"><input type="checkbox" id="qPublish" ${q.publish ? "checked" : ""}> לפרסם בעילום שם</label>
@@ -832,7 +867,10 @@ function openQuestion(id) {
     };
     if ($("qOpenContact")) $("qOpenContact").onclick = () => openContact(q.contactId);
     root.querySelectorAll("[data-prevq]").forEach((b) => (b.onclick = () => openQuestion(b.dataset.prevq)));
-    $("qAnswer").addEventListener("input", () => { if ($("qStatusSel").value === "new" && $("qAnswer").value.trim()) $("qStatusSel").value = "in_progress"; });
+    $("qAnswer").addEventListener("input", () => {
+      if ($("qStatusSel").value === "new" && $("qAnswer").value.trim()) $("qStatusSel").value = "in_progress";
+      $("qAutoTags").innerHTML = calcAutoTags(q.text, $("qAnswer").value).map((t) => `<span class="badge brand">${esc(t)}</span>`).join("") || "אין";
+    });
   });
 }
 
@@ -846,12 +884,14 @@ async function saveQuestion(id) {
   if (publish && (!answer || status !== "answered")) return toast("אפשר לפרסם רק שאלה שנענתה", "bad");
   // רב שעונה על שאלה שלא שויכה – משויך אליה אוטומטית
   const rabbiEmail = $("qRabbiSel").value || (status !== "new" && can("rabbi") ? myEmail() : "");
-  const upd = { status, answer, rabbiEmail: rabbiEmail || "", topic: $("qTopicSel").value, publish, publicText, updatedAt: serverTimestamp() };
+  const tags = [...new Set($("qTagsIn").value.split(",").map((t) => t.trim()).filter(Boolean))];
+  const autoTags = calcAutoTags(q.text, answer);
+  const upd = { status, answer, rabbiEmail: rabbiEmail || "", topic: $("qTopicSel").value, tags, autoTags, publish, publicText, updatedAt: serverTimestamp() };
   if (status === "answered" && q.status !== "answered") upd.answeredAt = serverTimestamp();
   try {
     await updateDoc(doc(db, "questions", id), upd);
     if (publish) {
-      await setDoc(doc(db, "publicQA", id), { topic: upd.topic, question: publicText, answer, rabbiName: userName(rabbiEmail), publishedAt: q.publish ? (q.publishedAt || serverTimestamp()) : serverTimestamp() });
+      await setDoc(doc(db, "publicQA", id), { topic: upd.topic, tags: [...new Set([...tags, ...autoTags])], question: publicText, answer, rabbiName: userName(rabbiEmail), publishedAt: q.publish ? (q.publishedAt || serverTimestamp()) : serverTimestamp() });
       if (!q.publish) await updateDoc(doc(db, "questions", id), { publishedAt: serverTimestamp() });
     } else if (q.publish) {
       await deleteDoc(doc(db, "publicQA", id));
@@ -869,7 +909,7 @@ function openManualQuestion() {
       <div class="field"><label>שם משפחה</label><input id="mLast"></div>
       <div class="field"><label>מייל</label><input id="mEmail" type="email"></div>
       <div class="field"><label>טלפון</label><input id="mPhone"></div>
-      <div class="field"><label>נושא</label><select id="mTopic">${TOPICS.map((t) => `<option>${esc(t)}</option>`).join("")}</select></div>
+      <div class="field"><label>קטגוריה</label><select id="mTopic">${categoryOptions(S.tax.defaultCategory, false)}</select></div>
       <div class="field"><label>מקור</label><select id="mOrigin"><option>מייל</option><option>טלפון</option><option>וואטסאפ</option><option>בעל-פה</option></select></div>
       <div class="field"><label>תאריך השאלה</label><input id="mDate" type="date" value="${new Date().toISOString().slice(0, 10)}"></div>
     </div>
@@ -882,6 +922,7 @@ function openManualQuestion() {
       await addDoc(collection(db, "questions"), {
         firstName: $("mFirst").value.trim(), lastName: $("mLast").value.trim(), email: $("mEmail").value.trim(), phone: $("mPhone").value.trim(),
         topic: $("mTopic").value, text: $("mText").value.trim(), consentEmail: $("mConsent").checked,
+        tags: [], autoTags: calcAutoTags($("mText").value, ""),
         status: "new", contactId: null, origin: $("mOrigin").value, createdBy: S.user.uid,
         createdAt: Timestamp.fromDate(new Date($("mDate").value || Date.now()))
       });
@@ -1065,4 +1106,111 @@ function renderUsers(full) {
     try { await deleteDoc(doc(db, "allowedEmails", b.dataset.remove)); toast("הוסר"); }
     catch (e) { toast("ההסרה נכשלה: " + e.code, "bad"); }
   }));
+}
+
+// ======================================================
+// הגדרות: קטגוריות ותגיות
+// ======================================================
+let SET = null; // טיוטת עריכה
+
+function renderSettings(full) {
+  if (!full && $("setCats")) return; // לא לדרוס עריכה פתוחה
+  SET = JSON.parse(JSON.stringify(S.tax));
+  $("main").innerHTML = `
+    <h1>הגדרות שו"ת</h1>
+    <div class="split">
+      <div class="card">
+        <h2>קטגוריות</h2>
+        <p class="small muted">מופיעות בטופס "שאל את הרב", במאגר ובסינון. הקטגוריה המסומנת היא ברירת המחדל בטופס.</p>
+        <div id="setCats"></div>
+        <button id="addCat" style="margin-top:8px">+ קטגוריה</button>
+      </div>
+      <div class="card">
+        <h2>תגיות ומילות מפתח</h2>
+        <p class="small muted">תגית מתווספת אוטומטית לשאלה כשאחת ממילות המפתח מופיעה בשאלה או בתשובה. אפשר לכתוב חלק ממילה – למשל "שכיר" יתפוס גם "השכירות" ו"שכירים". תגית בלי מילות מפתח משמשת רק לתיוג ידני.</p>
+        <div id="setTags"></div>
+        <button id="addTag" style="margin-top:8px">+ תגית</button>
+      </div>
+    </div>
+    <div class="row">
+      <button class="primary" id="saveSet">שמירת ההגדרות</button>
+      <button id="retagAll">החלת תגיות אוטומטיות על כל השאלות הקיימות</button>
+      <span id="retagMsg" class="muted small"></span>
+    </div>`;
+  drawSettingsLists();
+  $("addCat").onclick = () => { SET.categories.push(""); drawSettingsLists(); };
+  $("addTag").onclick = () => { SET.tags.push({ name: "", keywords: [] }); drawSettingsLists(); };
+  $("saveSet").onclick = saveSettings;
+  $("retagAll").onclick = retagAll;
+}
+
+function drawSettingsLists() {
+  $("setCats").innerHTML = SET.categories.map((c, i) => `
+    <div class="cond" data-i="${i}">
+      <label class="check" title="ברירת מחדל" style="margin:0"><input type="radio" name="defCat" data-k="def" ${c && c === SET.defaultCategory ? "checked" : ""}></label>
+      <input data-k="name" value="${esc(c)}" placeholder="שם הקטגוריה" style="flex:1">
+      <button data-k="up" title="למעלה" ${i === 0 ? "disabled" : ""}>▲</button>
+      <button data-k="del" class="danger" title="מחיקה">✕</button>
+    </div>`).join("");
+  $("setCats").querySelectorAll(".cond").forEach((row) => {
+    const i = Number(row.dataset.i);
+    row.querySelector('[data-k="name"]').oninput = (e) => {
+      const was = SET.categories[i]; SET.categories[i] = e.target.value;
+      if (SET.defaultCategory === was) SET.defaultCategory = e.target.value;
+    };
+    row.querySelector('[data-k="def"]').onchange = () => { SET.defaultCategory = SET.categories[i]; };
+    row.querySelector('[data-k="up"]').onclick = () => { const c = SET.categories.splice(i, 1)[0]; SET.categories.splice(i - 1, 0, c); drawSettingsLists(); };
+    row.querySelector('[data-k="del"]').onclick = () => { SET.categories.splice(i, 1); drawSettingsLists(); };
+  });
+
+  $("setTags").innerHTML = SET.tags.map((t, i) => `
+    <div class="card" data-i="${i}" style="padding:10px 12px;margin-bottom:8px">
+      <div class="row">
+        <input data-k="name" value="${esc(t.name)}" placeholder="שם התגית (למשל: שכירות)" style="flex:1">
+        <button data-k="del" class="danger" title="מחיקה">✕</button>
+      </div>
+      <input data-k="kw" value="${esc(t.keywords.join(", "))}" placeholder="מילות מפתח, מופרדות בפסיק (למשל: שכיר, משכיר, דמי שכירות)" style="margin-top:6px">
+    </div>`).join("") || '<p class="muted small">עדיין אין תגיות.</p>';
+  $("setTags").querySelectorAll(".card[data-i]").forEach((row) => {
+    const i = Number(row.dataset.i);
+    row.querySelector('[data-k="name"]').oninput = (e) => { SET.tags[i].name = e.target.value; };
+    row.querySelector('[data-k="kw"]').oninput = (e) => { SET.tags[i].keywords = e.target.value.split(",").map((k) => k.trim()).filter(Boolean); };
+    row.querySelector('[data-k="del"]').onclick = () => { SET.tags.splice(i, 1); drawSettingsLists(); };
+  });
+}
+
+async function saveSettings() {
+  const cats = [...new Set(SET.categories.map((c) => c.trim()).filter(Boolean))];
+  if (!cats.length) return toast("צריך לפחות קטגוריה אחת", "bad");
+  const names = SET.tags.map((t) => t.name.trim()).filter(Boolean);
+  if (new Set(names).size !== names.length) return toast("יש שתי תגיות עם אותו שם", "bad");
+  const data = normTaxonomy({ categories: cats, defaultCategory: SET.defaultCategory, tags: SET.tags });
+  try {
+    await setDoc(doc(db, "settings", "taxonomy"), { ...data, updatedBy: myEmail(), updatedAt: serverTimestamp() });
+    S.tax = data;
+    toast("ההגדרות נשמרו", "good");
+    renderSettings(true);
+  } catch (e) { toast("השמירה נכשלה: " + e.code, "bad"); }
+}
+
+async function retagAll() {
+  const changes = [...S.questions.values()]
+    .map((q) => ({ q, auto: calcAutoTags(q.text, q.answer) }))
+    .filter(({ q, auto }) => !sameList(q.autoTags, auto));
+  if (!changes.length) { $("retagMsg").textContent = "כל השאלות כבר מתויגות לפי ההגדרות השמורות."; return; }
+  if (!confirm(`לעדכן תגיות אוטומטיות ב-${changes.length} שאלות? (לפי ההגדרות השמורות; תגיות ידניות לא ישתנו)`)) return;
+  $("retagAll").disabled = true;
+  try {
+    for (let i = 0; i < changes.length; i += 400) {
+      const b = writeBatch(db);
+      changes.slice(i, i + 400).forEach(({ q, auto }) => {
+        b.update(doc(db, "questions", q.id), { autoTags: auto });
+        if (q.publish) b.set(doc(db, "publicQA", q.id), { tags: [...new Set([...(q.tags || []), ...auto])] }, { merge: true });
+      });
+      await b.commit();
+      $("retagMsg").textContent = `עודכנו ${Math.min(i + 400, changes.length)} מתוך ${changes.length}`;
+    }
+    toast("התגיות עודכנו", "good");
+  } catch (e) { toast("העדכון נכשל: " + e.code, "bad"); }
+  $("retagAll").disabled = false;
 }

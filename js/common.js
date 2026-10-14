@@ -1,8 +1,8 @@
 // ===== פונקציות משותפות לכל הדפים =====
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getAuth } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { firebaseConfig, ORG_NAME, TOPICS } from "./config.js?v=20261015";
+import { firebaseConfig, ORG_NAME, TOPICS } from "./config.js?v=20261015b";
 
 export { ORG_NAME, TOPICS };
 
@@ -62,4 +62,43 @@ export function toast(msg, kind = "") {
 export function setupMissingNotice(target) {
   target.innerHTML = `<div class="card narrow"><h2>המערכת עוד לא מחוברת</h2>
   <p>צריך להדביק את פרטי פרויקט ה-Firebase בקובץ <code>js/config.js</code>. ההוראות המלאות בקובץ README.md.</p></div>`;
+}
+
+// ---------- קטגוריות ותגיות (נשמרות ב-settings/taxonomy, ניתנות לעריכה במסך הגדרות) ----------
+export const DEFAULT_TAXONOMY = { categories: [...TOPICS], defaultCategory: TOPICS[0], tags: [] };
+
+export async function loadTaxonomy() {
+  try {
+    const snap = await getDoc(doc(db, "settings", "taxonomy"));
+    if (snap.exists()) return normTaxonomy(snap.data());
+  } catch (e) { /* נשתמש בברירת המחדל */ }
+  return normTaxonomy(DEFAULT_TAXONOMY);
+}
+
+export function normTaxonomy(t) {
+  const categories = (t?.categories || []).map((c) => String(c).trim()).filter(Boolean);
+  const cats = categories.length ? categories : [...TOPICS];
+  return {
+    categories: cats,
+    defaultCategory: cats.includes(t?.defaultCategory) ? t.defaultCategory : cats[0],
+    tags: (t?.tags || []).map((g) => ({
+      name: String(g.name || "").trim(),
+      keywords: (g.keywords || []).map((k) => String(k).trim()).filter((k) => k.length >= 2)
+    })).filter((g) => g.name)
+  };
+}
+
+// ניקוי טקסט עברי להשוואה: הסרת ניקוד, גרשיים וסימני פיסוק
+export function normText(s) {
+  return " " + String(s || "")
+    .replace(/[\u0591-\u05C7]/g, "")
+    .replace(/["'״׳`]/g, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .toLowerCase().trim() + " ";
+}
+
+// תגיות אוטומטיות: תגית מתווספת כשאחת ממילות המפתח שלה מופיעה בשאלה או בתשובה
+export function autoTagsFor(text, tags) {
+  const t = normText(text);
+  return tags.filter((g) => g.keywords.some((k) => t.includes(normText(k).trim()))).map((g) => g.name);
 }
