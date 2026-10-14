@@ -8,7 +8,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   db, auth, configReady, esc, normEmail, normPhone, toDate, fmtDate, toast, setupMissingNotice, TOPICS
-} from "./common.js";
+} from "./common.js?v=20261015";
 
 // ---------- קבועים ----------
 const STAFF_ROLES = ["admin", "head", "rabbi", "staff"];
