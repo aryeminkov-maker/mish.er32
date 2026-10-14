@@ -6,6 +6,8 @@
   <title>ניהול קשרים – מכון משפטי ארץ</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" href="img/favicon.png">
+  <meta name="theme-color" content="#c19937">
   <link rel="stylesheet" href="css/style.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
@@ -14,8 +16,9 @@
   <!-- כניסה -->
   <section id="loginView" class="hidden">
     <div class="card narrow">
-      <h1>כניסת צוות</h1>
-      <p class="muted">מערכת ניהול הקשרים של מכון משפטי ארץ</p>
+      <picture><source srcset="img/logo-light.png" media="(prefers-color-scheme: dark)"><img src="img/logo.png" class="login-logo" alt="מכון משפטי ארץ"></picture>
+      <h1 style="text-align:center">כניסת צוות</h1>
+      <p class="muted" style="text-align:center">מערכת ניהול הקשרים של המכון</p>
       <button class="primary" id="btnGoogle" style="width:100%;padding:11px">כניסה עם חשבון Google</button>
       <p class="small muted" style="margin-top:14px">הכניסה מותרת רק לכתובות שמנהל המערכת אישר.</p>
     </div>
@@ -26,6 +29,7 @@
     <div class="card narrow">
       <h2>אין הרשאת גישה</h2>
       <p>החשבון <b id="deniedEmail"></b> לא נמצא ברשימת המשתמשים המורשים.</p>
+      <p class="small" id="deniedReason" style="color:var(--bad)"></p>
       <p class="muted">אם אתה אמור לקבל גישה, בקש ממנהל המערכת להוסיף את הכתובת הזו. אם נכנסת בטעות עם חשבון אחר, צא ונסה שוב.</p>
       <button id="btnLogoutPending">יציאה והחלפת חשבון</button>
     </div>
@@ -34,7 +38,7 @@
   <!-- המערכת -->
   <section id="appView" class="hidden">
     <header class="topbar">
-      <span class="logo">משפטי ארץ</span>
+      <picture><source srcset="img/logo-light.png" media="(prefers-color-scheme: dark)"><img src="img/logo.png" class="logo-img" alt="מכון משפטי ארץ"></picture>
       <nav id="nav">
         <button data-view="dashboard">ראשי</button>
         <button data-view="contacts">אנשי קשר</button>

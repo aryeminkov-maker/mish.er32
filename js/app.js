@@ -76,10 +76,15 @@ async function handleAuth(u) {
   S.user = u;
   // הכניסה מותרת רק למיילים שהמנהל הוסיף לרשימת המורשים
   let snap = null;
-  try { snap = await getDoc(doc(db, "allowedEmails", myEmail())); } catch (e) { snap = null; }
+  let reason = "";
+  try { snap = await getDoc(doc(db, "allowedEmails", myEmail())); }
+  catch (e) { snap = null; reason = e.code === "permission-denied" ? "חוקי האבטחה ב-Firebase חוסמים את הבדיקה – צריך לפרסם את firestore.rules העדכני (Firestore ← Rules ← Publish)." : "שגיאה: " + e.code; }
   S.profile = snap?.exists() ? snap.data() : null;
+  if (snap && !snap.exists()) reason = `לא נמצא מסמך בשם "${myEmail()}" באוסף allowedEmails.`;
+  else if (S.profile && !STAFF_ROLES.includes(S.profile.role)) reason = `בשדה role רשום "${S.profile.role}". הערך צריך להיות admin, head, staff או rabbi.`;
   if (!S.profile || !STAFF_ROLES.includes(S.profile.role)) {
     $("deniedEmail").textContent = u.email;
+    $("deniedReason").textContent = reason;
     $("pendingView").classList.remove("hidden");
     return;
   }
