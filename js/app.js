@@ -4,8 +4,7 @@ import {
   serverTimestamp, writeBatch, Timestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
-  onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword,
-  signOut, sendPasswordResetEmail
+  onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   db, auth, configReady, esc, normEmail, normPhone, toDate, fmtDate, toast, setupMissingNotice, TOPICS
@@ -13,7 +12,7 @@ import {
 
 // ---------- קבועים ----------
 const STAFF_ROLES = ["admin", "head", "rabbi", "staff"];
-const ROLE_LABEL = { pending: "ממתין לאישור", staff: "צוות", rabbi: "רב משיב", head: "רכז הרכזים", admin: "מנהל מערכת", blocked: "חסום" };
+const ROLE_LABEL = { staff: "צוות", rabbi: "רב משיב", head: "רכז הרכזים", admin: "מנהל מערכת" };
 const ACT_TYPES = {
   donation: "תרומה",
   course: "השתלמות",
@@ -38,7 +37,8 @@ const S = {
   unsub: []
 };
 const $ = (id) => document.getElementById(id);
-const role = () => S.profile?.role || "pending";
+const role = () => S.profile?.role || "none";
+const myEmail = () => normEmail(S.user?.email);
 const can = (...roles) => roles.includes(role());
 
 // ---------- כניסה ----------
@@ -50,27 +50,20 @@ if (!configReady) {
 }
 
 function initAuthUI() {
-  $("btnLogin").onclick = async () => {
-    try { await signInWithEmailAndPassword(auth, $("loginEmail").value.trim(), $("loginPass").value); }
-    catch (e) { toast("הכניסה נכשלה: מייל או סיסמה שגויים", "bad"); }
-  };
-  $("loginPass").addEventListener("keydown", (e) => { if (e.key === "Enter") $("btnLogin").click(); });
-  $("btnForgot").onclick = async () => {
-    const em = $("loginEmail").value.trim();
-    if (!em) return toast("הקלד את המייל שלך בשדה המייל", "bad");
-    try { await sendPasswordResetEmail(auth, em); toast("נשלח מייל לאיפוס סיסמה", "good"); }
-    catch { toast("לא הצלחנו לשלוח מייל איפוס", "bad"); }
-  };
-  $("showRegister").onclick = () => { $("loginForm").classList.add("hidden"); $("registerForm").classList.remove("hidden"); };
-  $("showLogin").onclick = () => { $("registerForm").classList.add("hidden"); $("loginForm").classList.remove("hidden"); };
-  $("btnRegister").onclick = async () => {
-    const name = $("regName").value.trim();
-    if (!name) return toast("נא למלא שם", "bad");
-    try {
-      const cred = await createUserWithEmailAndPassword(auth, $("regEmail").value.trim(), $("regPass").value);
-      await setDoc(doc(db, "users", cred.user.uid), { name, email: cred.user.email, role: "pending", createdAt: serverTimestamp() }, { merge: true });
-      location.reload();
-    } catch (e) { toast("ההרשמה נכשלה: " + (e.code || e.message), "bad"); }
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: "select_account" });
+  getRedirectResult(auth).catch((e) => toast("הכניסה נכשלה: " + e.code, "bad"));
+  $("btnGoogle").onclick = async () => {
+    try { await signInWithPopup(auth, provider); }
+    catch (e) {
+      if (["auth/popup-blocked", "auth/operation-not-supported-in-this-environment"].includes(e.code)) {
+        await signInWithRedirect(auth, provider);
+      } else if (e.code === "auth/unauthorized-domain") {
+        toast("הדומיין של האתר לא אושר ב-Firebase (Authentication ← Settings ← Authorized domains)", "bad");
+      } else if (e.code !== "auth/popup-closed-by-user" && e.code !== "auth/cancelled-popup-request") {
+        toast("הכניסה נכשלה: " + e.code, "bad");
+      }
+    }
   };
   $("btnLogout").onclick = () => signOut(auth);
   $("btnLogoutPending").onclick = () => signOut(auth);
@@ -81,14 +74,21 @@ async function handleAuth(u) {
   ["loginView", "pendingView", "appView"].forEach((v) => $(v).classList.add("hidden"));
   if (!u) { $("loginView").classList.remove("hidden"); return; }
   S.user = u;
-  const ref = doc(db, "users", u.uid);
-  let snap = await getDoc(ref);
-  if (!snap.exists()) {
-    await setDoc(ref, { name: u.displayName || u.email, email: u.email, role: "pending", createdAt: serverTimestamp() });
-    snap = await getDoc(ref);
+  // הכניסה מותרת רק למיילים שהמנהל הוסיף לרשימת המורשים
+  let snap = null;
+  try { snap = await getDoc(doc(db, "allowedEmails", myEmail())); } catch (e) { snap = null; }
+  S.profile = snap?.exists() ? snap.data() : null;
+  if (!S.profile || !STAFF_ROLES.includes(S.profile.role)) {
+    $("deniedEmail").textContent = u.email;
+    $("pendingView").classList.remove("hidden");
+    return;
   }
-  S.profile = snap.data();
-  if (!STAFF_ROLES.includes(S.profile.role)) { $("pendingView").classList.remove("hidden"); return; }
+  // עדכון שם ותמונה מחשבון ה-Google (מותר למשתמש לעדכן רק את השדות האלה)
+  const upd = {};
+  if (!S.profile.name && u.displayName) upd.name = u.displayName;
+  upd.lastLogin = serverTimestamp();
+  updateDoc(doc(db, "allowedEmails", myEmail()), upd).catch(() => {});
+  if (upd.name) S.profile.name = upd.name;
   $("appView").classList.remove("hidden");
   $("whoName").textContent = `${S.profile.name || u.email} · ${ROLE_LABEL[S.profile.role]}`;
   if (role() === "rabbi") S.qf.rabbi = "mine";
@@ -132,7 +132,7 @@ function subscribeAll() {
     });
     S.loaded.questions = true; dataChanged();
   });
-  sub("users", (snap) => { S.users.clear(); snap.forEach((d) => S.users.set(d.id, { id: d.id, ...d.data() })); dataChanged(); });
+  sub("allowedEmails", (snap) => { S.users.clear(); snap.forEach((d) => S.users.set(d.id, { id: d.id, email: d.id, ...d.data() })); dataChanged(); });
   sub("savedLists", (snap) => { S.lists.clear(); snap.forEach((d) => S.lists.set(d.id, { id: d.id, ...d.data() })); dataChanged(); });
 }
 
@@ -224,7 +224,7 @@ function renderView(full) {
 // ---------- עזרי תצוגה ----------
 const fullName = (c) => [c?.firstName, c?.lastName].filter(Boolean).join(" ") || c?.email || "(ללא שם)";
 const consentOf = (c, ch = "Email") => c?.["consent" + ch]?.status || "unknown";
-const userName = (uid) => S.users.get(uid)?.name || "";
+const userName = (email) => (email ? S.users.get(email)?.name || email : "");
 const rabbis = () => [...S.users.values()].filter((u) => ["rabbi", "head", "admin"].includes(u.role));
 
 function countsOf(contactId) {
@@ -288,10 +288,10 @@ function renderDashboard() {
   const consentYes = [...S.contacts.values()].filter((c) => consentOf(c) === "yes").length;
 
   const perRabbi = rabbis().map((r) => {
-    const mine = qs.filter((q) => q.rabbiUid === r.id);
-    return `<tr><td>${esc(r.name)}</td><td>${mine.filter((q) => q.status === "new").length}</td><td>${mine.filter((q) => q.status === "in_progress").length}</td><td>${mine.filter((q) => q.status === "answered").length}</td></tr>`;
+    const mine = qs.filter((q) => q.rabbiEmail === r.id);
+    return `<tr><td>${esc(userName(r.id))}</td><td>${mine.filter((q) => q.status === "new").length}</td><td>${mine.filter((q) => q.status === "in_progress").length}</td><td>${mine.filter((q) => q.status === "answered").length}</td></tr>`;
   }).join("");
-  const unassigned = qs.filter((q) => !q.rabbiUid && q.status !== "answered").length;
+  const unassigned = qs.filter((q) => !q.rabbiEmail && q.status !== "answered").length;
 
   const latest = sortByDateDesc(qs.filter((q) => q.status !== "answered"), "createdAt").slice(0, 6);
 
@@ -700,7 +700,7 @@ function qCardHtml(q) {
       <span><span class="badge ${Q_BADGE[q.status]}">${Q_STATUS[q.status]}</span>${q.topic ? `<span class="badge">${esc(q.topic)}</span>` : ""}</span></div>
     <div class="qtext">${esc(q.text)}</div>
     <div class="row space small"><span>${contextBadges(q.contactId, q.id)}</span>
-      <span class="muted">${fmtDate(q.createdAt)}${q.rabbiUid ? " · " + esc(userName(q.rabbiUid)) : " · לא שויך"}</span></div>
+      <span class="muted">${fmtDate(q.createdAt)}${q.rabbiEmail ? " · " + esc(userName(q.rabbiEmail)) : " · לא שויך"}</span></div>
   </div>`;
 }
 function bindQCards() { document.querySelectorAll(".qcard[data-q]").forEach((el) => (el.onclick = () => openQuestion(el.dataset.q))); }
@@ -709,9 +709,9 @@ function filteredQuestions() {
   const f = S.qf;
   return sortByDateDesc([...S.questions.values()].filter((q) => {
     if (f.status && q.status !== f.status) return false;
-    if (f.rabbi === "mine" && q.rabbiUid !== S.user.uid) return false;
-    if (f.rabbi === "none" && q.rabbiUid) return false;
-    if (f.rabbi && !["mine", "none"].includes(f.rabbi) && q.rabbiUid !== f.rabbi) return false;
+    if (f.rabbi === "mine" && q.rabbiEmail !== myEmail()) return false;
+    if (f.rabbi === "none" && q.rabbiEmail) return false;
+    if (f.rabbi && !["mine", "none"].includes(f.rabbi) && q.rabbiEmail !== f.rabbi) return false;
     if (f.topic && q.topic !== f.topic) return false;
     if (f.text) {
       const t = f.text.toLowerCase();
@@ -736,7 +736,7 @@ function renderQuestions(full) {
       <input id="qText" class="grow" placeholder="חיפוש בשאלות ובתשובות" value="${esc(f.text)}">
       <select id="qRabbi" style="width:auto">
         <option value="">כל הרבנים</option><option value="mine">השאלות שלי</option><option value="none">לא שויכו</option>
-        ${rabbis().map((r) => `<option value="${r.id}">${esc(r.name)}</option>`).join("")}
+        ${rabbis().map((r) => `<option value="${r.id}">${esc(userName(r.id))}</option>`).join("")}
       </select>
       <select id="qTopic" style="width:auto"><option value="">כל הנושאים</option>${TOPICS.map((t) => `<option>${esc(t)}</option>`).join("")}</select>
     </div></div>
@@ -766,7 +766,7 @@ function exportQuestions() {
     const n = q.contactId ? countsOf(q.contactId) : {};
     return {
       "תאריך": fmtDate(q.createdAt), "שם": [q.firstName, q.lastName].filter(Boolean).join(" "), "מייל": q.email || "", "טלפון": q.phone || "",
-      "נושא": q.topic || "", "שאלה": q.text || "", "סטטוס": Q_STATUS[q.status] || "", "רב": userName(q.rabbiUid),
+      "נושא": q.topic || "", "שאלה": q.text || "", "סטטוס": Q_STATUS[q.status] || "", "רב": userName(q.rabbiEmail),
       "תשובה": q.answer || "", "תאריך מענה": fmtDate(q.answeredAt), "פורסם במאגר": q.publish ? "כן" : "לא",
       "תורם": n.donation ? "כן" : "", "משתתף השתלמויות": n.course ? "כן" : "", "מקור": q.origin || ""
     };
@@ -787,7 +787,7 @@ function openQuestion(id) {
         <div class="field"><label>תשובה</label><textarea id="qAnswer" style="min-height:180px">${esc(q.answer)}</textarea></div>
         <div class="grid2">
           <div class="field"><label>רב משיב</label><select id="qRabbiSel"><option value="">לא שויך</option>
-            ${rabbis().map((r) => `<option value="${r.id}" ${q.rabbiUid === r.id ? "selected" : ""}>${esc(r.name)}</option>`).join("")}</select></div>
+            ${rabbis().map((r) => `<option value="${r.id}" ${q.rabbiEmail === r.id ? "selected" : ""}>${esc(userName(r.id))}</option>`).join("")}</select></div>
           <div class="field"><label>סטטוס</label><select id="qStatusSel">
             ${Object.entries(Q_STATUS).map(([k, v]) => `<option value="${k}" ${q.status === k ? "selected" : ""}>${v}</option>`).join("")}</select></div>
           <div class="field"><label>נושא</label><select id="qTopicSel"><option value="">ללא</option>
@@ -840,13 +840,13 @@ async function saveQuestion(id) {
   if (status === "answered" && !answer) return toast("כדי לסמן 'נענתה' צריך לכתוב תשובה", "bad");
   if (publish && (!answer || status !== "answered")) return toast("אפשר לפרסם רק שאלה שנענתה", "bad");
   // רב שעונה על שאלה שלא שויכה – משויך אליה אוטומטית
-  const rabbiUid = $("qRabbiSel").value || (status !== "new" && can("rabbi") ? S.user.uid : "");
-  const upd = { status, answer, rabbiUid: rabbiUid || "", topic: $("qTopicSel").value, publish, publicText, updatedAt: serverTimestamp() };
+  const rabbiEmail = $("qRabbiSel").value || (status !== "new" && can("rabbi") ? myEmail() : "");
+  const upd = { status, answer, rabbiEmail: rabbiEmail || "", topic: $("qTopicSel").value, publish, publicText, updatedAt: serverTimestamp() };
   if (status === "answered" && q.status !== "answered") upd.answeredAt = serverTimestamp();
   try {
     await updateDoc(doc(db, "questions", id), upd);
     if (publish) {
-      await setDoc(doc(db, "publicQA", id), { topic: upd.topic, question: publicText, answer, rabbiName: userName(rabbiUid), publishedAt: q.publish ? (q.publishedAt || serverTimestamp()) : serverTimestamp() });
+      await setDoc(doc(db, "publicQA", id), { topic: upd.topic, question: publicText, answer, rabbiName: userName(rabbiEmail), publishedAt: q.publish ? (q.publishedAt || serverTimestamp()) : serverTimestamp() });
       if (!q.publish) await updateDoc(doc(db, "questions", id), { publishedAt: serverTimestamp() });
     } else if (q.publish) {
       await deleteDoc(doc(db, "publicQA", id));
@@ -1013,22 +1013,51 @@ async function runImport() {
 // משתמשים
 // ======================================================
 function renderUsers(full) {
-  const users = [...S.users.values()].sort((a, b) => (a.role === "pending" ? -1 : 0) - (b.role === "pending" ? -1 : 0));
+  const keep = full ? null : { e: $("uEmail")?.value, n: $("uName")?.value, r: $("uRole")?.value };
+  const users = [...S.users.values()].sort((a, b) => userName(a.id).localeCompare(userName(b.id), "he"));
+  const roleOpts = (cur) => Object.entries(ROLE_LABEL).map(([k, v]) => `<option value="${k}" ${cur === k ? "selected" : ""}>${v}</option>`).join("");
   $("main").innerHTML = `
-    <h1>משתמשים והרשאות</h1>
-    <p class="muted">עובדים נרשמים בדף הכניסה, ומנהל המערכת מגדיר להם תפקיד כאן.</p>
+    <h1>משתמשים מורשים</h1>
+    <p class="muted">רק מי שהמייל שלו ברשימה יכול להיכנס עם חשבון ה-Google שלו. הסרה מהרשימה חוסמת את הגישה מיד.</p>
+    <div class="card">
+      <h3>הוספת משתמש</h3>
+      <div class="row">
+        <input id="uEmail" type="email" class="grow" placeholder="כתובת Gmail / Google">
+        <input id="uName" class="grow" placeholder="שם">
+        <select id="uRole" style="width:auto">${roleOpts("staff")}</select>
+        <button class="primary" id="uAdd">הוספה</button>
+      </div>
+    </div>
     <div class="card" style="padding:0"><div class="table-wrap"><table>
-      <thead><tr><th>שם</th><th>מייל</th><th>תפקיד</th></tr></thead>
-      <tbody>${users.map((u) => `<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td>
-        <td><select data-uid="${u.id}" style="width:auto" ${u.id === S.user.uid ? "disabled" : ""}>
-          ${Object.entries(ROLE_LABEL).map(([k, v]) => `<option value="${k}" ${u.role === k ? "selected" : ""}>${v}</option>`).join("")}
-        </select></td></tr>`).join("")}</tbody></table></div></div>
+      <thead><tr><th>שם</th><th>מייל</th><th>תפקיד</th><th class="hide-mobile">כניסה אחרונה</th><th></th></tr></thead>
+      <tbody>${users.map((u) => {
+        const me = u.id === myEmail();
+        return `<tr><td>${esc(u.name || "")}</td><td>${esc(u.id)}</td>
+        <td><select data-email="${esc(u.id)}" style="width:auto" ${me ? "disabled" : ""}>${roleOpts(u.role)}</select></td>
+        <td class="hide-mobile small muted">${u.lastLogin ? fmtDate(u.lastLogin) : "עוד לא נכנס"}</td>
+        <td>${me ? "" : `<button class="danger" data-remove="${esc(u.id)}">הסרה</button>`}</td></tr>`;
+      }).join("")}</tbody></table></div></div>
     <div class="card small muted">
       <b>מה כל תפקיד רואה:</b> מנהל מערכת – הכול, כולל משתמשים ומחיקה. רכז הרכזים וצוות – אנשי קשר, שו"ת וייבוא.
       רב משיב – שו"ת ותקציר על השואל, צפייה בלבד בכרטיסי אנשי קשר.
     </div>`;
-  document.querySelectorAll("select[data-uid]").forEach((s) => (s.onchange = async () => {
-    try { await updateDoc(doc(db, "users", s.dataset.uid), { role: s.value }); toast("התפקיד עודכן", "good"); }
+  if (keep?.e != null) { $("uEmail").value = keep.e; $("uName").value = keep.n; $("uRole").value = keep.r; }
+  $("uAdd").onclick = async () => {
+    const email = normEmail($("uEmail").value);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return toast("כתובת מייל לא תקינה", "bad");
+    if (S.users.has(email)) return toast("המייל כבר ברשימה", "bad");
+    try {
+      await setDoc(doc(db, "allowedEmails", email), { name: $("uName").value.trim(), role: $("uRole").value, addedBy: myEmail(), addedAt: serverTimestamp() });
+      toast("נוסף. עכשיו הוא יכול להיכנס עם חשבון ה-Google שלו", "good");
+    } catch (e) { toast("ההוספה נכשלה: " + e.code, "bad"); }
+  };
+  document.querySelectorAll("select[data-email]").forEach((s) => (s.onchange = async () => {
+    try { await updateDoc(doc(db, "allowedEmails", s.dataset.email), { role: s.value }); toast("התפקיד עודכן", "good"); }
     catch (e) { toast("העדכון נכשל: " + e.code, "bad"); }
+  }));
+  document.querySelectorAll("[data-remove]").forEach((b) => (b.onclick = async () => {
+    if (!confirm(`להסיר את ${b.dataset.remove}? הגישה שלו תיחסם מיד.`)) return;
+    try { await deleteDoc(doc(db, "allowedEmails", b.dataset.remove)); toast("הוסר"); }
+    catch (e) { toast("ההסרה נכשלה: " + e.code, "bad"); }
   }));
 }

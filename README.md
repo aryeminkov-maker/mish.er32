@@ -17,12 +17,12 @@
 1. **פרויקט Firebase**: נכנסים ל-console.firebase.google.com ← Add project. אפשר בלי Google Analytics.
 2. **מסד נתונים**: Build ← Firestore Database ← Create database ← Production mode ← מיקום `eur3` (אירופה).
 3. **חוקי אבטחה**: בלשונית Rules מוחקים הכול, מדביקים את תוכן `firestore.rules`, ולוחצים Publish.
-4. **כניסה**: Build ← Authentication ← Get started ← Email/Password ← Enable.
+4. **כניסה עם Google**: Build ← Authentication ← Get started ← Sign-in method ← Google ← Enable ← בוחרים מייל תמיכה ← Save.
 5. **חיבור האתר**: ⚙️ Project settings ← Your apps ← סמל `</>` ← נותנים שם ← מעתיקים את `firebaseConfig` לקובץ `js/config.js`.
 6. **GitHub**: מעלים את כל התיקייה למאגר חדש ← Settings ← Pages ← Branch: main ← Save.
 7. **דומיין מורשה**: ב-Firebase ← Authentication ← Settings ← Authorized domains ← מוסיפים `שם-המשתמש.github.io`.
-8. **מנהל ראשון**: נכנסים לאתר ← "הרשמה לצוות". ב-Firebase ← Firestore ← אוסף `users` ← המסמך שלך ← משנים את `role` מ-`pending` ל-`admin`. מרעננים את האתר.
-9. מעכשיו כל עובד נרשם לבד, ומנהל מאשר אותו בלשונית **משתמשים**.
+8. **מנהל ראשון** (פעם אחת, ידנית): ב-Firebase ← Firestore Database ← Data ← Start collection. Collection ID: `allowedEmails`. Document ID: כתובת ה-Gmail שלך באותיות קטנות. מוסיפים שדה `role` מסוג string עם הערך `admin`, ושדה `name` עם השם שלך ← Save. נכנסים לאתר עם אותו חשבון Google.
+9. מעכשיו המנהל מוסיף עובדים בלשונית **משתמשים**: כתובת Google, שם ותפקיד. רק כתובות מהרשימה יכולות להיכנס, והסרה מהרשימה חוסמת את הגישה מיד.
 
 ## תפקידים
 

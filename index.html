@@ -16,34 +16,18 @@
     <div class="card narrow">
       <h1>כניסת צוות</h1>
       <p class="muted">מערכת ניהול הקשרים של מכון משפטי ארץ</p>
-      <div id="loginForm">
-        <div class="field"><label>מייל</label><input id="loginEmail" type="email" autocomplete="email"></div>
-        <div class="field"><label>סיסמה</label><input id="loginPass" type="password" autocomplete="current-password"></div>
-        <div class="row space">
-          <button class="primary" id="btnLogin">כניסה</button>
-          <button class="link" id="btnForgot">שכחתי סיסמה</button>
-        </div>
-        <p class="small muted" style="margin-top:16px">אין לך חשבון? <button class="link" id="showRegister">הרשמה לצוות</button></p>
-      </div>
-      <div id="registerForm" class="hidden">
-        <div class="field"><label>שם מלא</label><input id="regName"></div>
-        <div class="field"><label>מייל</label><input id="regEmail" type="email"></div>
-        <div class="field"><label>סיסמה (לפחות 6 תווים)</label><input id="regPass" type="password"></div>
-        <div class="row space">
-          <button class="primary" id="btnRegister">הרשמה</button>
-          <button class="link" id="showLogin">חזרה לכניסה</button>
-        </div>
-        <p class="small muted" style="margin-top:12px">אחרי ההרשמה מנהל המערכת צריך לאשר את החשבון ולהגדיר תפקיד.</p>
-      </div>
+      <button class="primary" id="btnGoogle" style="width:100%;padding:11px">כניסה עם חשבון Google</button>
+      <p class="small muted" style="margin-top:14px">הכניסה מותרת רק לכתובות שמנהל המערכת אישר.</p>
     </div>
   </section>
 
-  <!-- ממתין לאישור -->
+  <!-- חשבון לא מורשה -->
   <section id="pendingView" class="hidden">
     <div class="card narrow">
-      <h2>החשבון ממתין לאישור</h2>
-      <p>נרשמת בהצלחה. מנהל המערכת צריך לאשר את החשבון ולהגדיר לך תפקיד. אחרי האישור רענן את הדף.</p>
-      <button id="btnLogoutPending">יציאה</button>
+      <h2>אין הרשאת גישה</h2>
+      <p>החשבון <b id="deniedEmail"></b> לא נמצא ברשימת המשתמשים המורשים.</p>
+      <p class="muted">אם אתה אמור לקבל גישה, בקש ממנהל המערכת להוסיף את הכתובת הזו. אם נכנסת בטעות עם חשבון אחר, צא ונסה שוב.</p>
+      <button id="btnLogoutPending">יציאה והחלפת חשבון</button>
     </div>
   </section>
 

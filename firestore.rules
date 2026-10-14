@@ -4,27 +4,31 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function signedIn() { return request.auth != null; }
-    function myRole() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    // כניסה רק עם חשבון Google מאומת, שהמייל שלו נמצא ברשימת המורשים (allowedEmails)
+    function signedIn() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.firebase.sign_in_provider == 'google.com';
     }
+    function myEmail() { return request.auth.token.email.lower(); }
+    function allowedDoc() { return /databases/$(database)/documents/allowedEmails/$(myEmail()); }
+    function myRole() { return get(allowedDoc()).data.role; }
     function isStaff() {
-      return signedIn()
-        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
-        && myRole() in ['admin', 'head', 'rabbi', 'staff'];
+      return signedIn() && exists(allowedDoc()) && myRole() in ['admin', 'head', 'rabbi', 'staff'];
     }
     function isAdmin() { return isStaff() && myRole() == 'admin'; }
     function isEditor() { return isStaff() && myRole() in ['admin', 'head', 'staff']; }
 
-    // משתמשי צוות
-    match /users/{uid} {
-      allow read: if isStaff() || (signedIn() && request.auth.uid == uid);
-      // הרשמה עצמית – רק בתפקיד "ממתין"
-      allow create: if signedIn() && request.auth.uid == uid && request.resource.data.role == 'pending';
-      // משתמש יכול לעדכן את שמו, אבל לא את התפקיד; מנהל יכול הכול
+    // רשימת המשתמשים המורשים – רק מנהל מוסיף, משנה תפקיד ומסיר
+    match /allowedEmails/{email} {
+      // כל משתמש יכול לבדוק את עצמו; הצוות רואה את כל הרשימה (לשיוך שאלות לרבנים)
+      allow get: if signedIn() && email == myEmail();
+      allow read: if isStaff();
+      allow create, delete: if isAdmin() && email == email.lower();
+      // מנהל משנה הכול; משתמש רגיל יכול לעדכן רק את שמו ואת זמן הכניסה האחרון שלו
       allow update: if isAdmin()
-        || (signedIn() && request.auth.uid == uid && request.resource.data.role == resource.data.role);
-      allow delete: if isAdmin();
+        || (isStaff() && email == myEmail()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'lastLogin']));
     }
 
     // אנשי קשר – כל הצוות קורא ויוצר (גם רב, לצורך קישור שאלות), עריכה לעורכים, מחיקה למנהל
