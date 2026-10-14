@@ -1,0 +1,77 @@
+rules_version = '2';
+// חוקי אבטחה – מכון משפטי ארץ
+// מדביקים ב-Firebase Console → Firestore Database → Rules → Publish
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function myRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+    function isStaff() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && myRole() in ['admin', 'head', 'rabbi', 'staff'];
+    }
+    function isAdmin() { return isStaff() && myRole() == 'admin'; }
+    function isEditor() { return isStaff() && myRole() in ['admin', 'head', 'staff']; }
+
+    // משתמשי צוות
+    match /users/{uid} {
+      allow read: if isStaff() || (signedIn() && request.auth.uid == uid);
+      // הרשמה עצמית – רק בתפקיד "ממתין"
+      allow create: if signedIn() && request.auth.uid == uid && request.resource.data.role == 'pending';
+      // משתמש יכול לעדכן את שמו, אבל לא את התפקיד; מנהל יכול הכול
+      allow update: if isAdmin()
+        || (signedIn() && request.auth.uid == uid && request.resource.data.role == resource.data.role);
+      allow delete: if isAdmin();
+    }
+
+    // אנשי קשר – כל הצוות קורא ויוצר (גם רב, לצורך קישור שאלות), עריכה לעורכים, מחיקה למנהל
+    match /contacts/{id} {
+      allow read, create: if isStaff();
+      allow update: if isEditor()
+        || (isStaff() && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['firstName', 'lastName', 'email', 'emailKey', 'phone', 'phoneKey', 'city', 'consentEmail']));
+      allow delete: if isAdmin();
+    }
+
+    // היסטוריה (תרומות, השתלמויות, ספרים, הערות)
+    match /activities/{id} {
+      allow read: if isStaff();
+      allow create, update: if isEditor();
+      allow delete: if isEditor();
+    }
+
+    // שאלות שו"ת – הציבור יכול רק לשלוח שאלה חדשה, בלי לקרוא
+    match /questions/{id} {
+      allow create: if isStaff() || (
+        request.resource.data.keys().hasOnly(['firstName', 'lastName', 'email', 'phone', 'topic', 'text', 'consentEmail', 'status', 'contactId', 'origin', 'createdAt'])
+        && request.resource.data.status == 'new'
+        && request.resource.data.contactId == null
+        && request.resource.data.origin == 'טופס באתר'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 5000
+        && request.resource.data.email is string && request.resource.data.email.size() <= 120
+        && request.resource.data.firstName is string && request.resource.data.firstName.size() <= 60
+        && request.resource.data.lastName is string && request.resource.data.lastName.size() <= 60
+        && request.resource.data.phone is string && request.resource.data.phone.size() <= 20
+        && request.resource.data.consentEmail is bool
+      );
+      allow read, update: if isStaff();
+      allow delete: if isAdmin();
+    }
+
+    // מאגר שו"ת ציבורי – כולם קוראים, רק הצוות כותב
+    match /publicQA/{id} {
+      allow read: if true;
+      allow write: if isStaff();
+    }
+
+    // רשימות שמורות (סינונים)
+    match /savedLists/{id} {
+      allow read, create: if isStaff();
+      allow update, delete: if isStaff();
+    }
+  }
+}

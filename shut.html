@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>מאגר שו"ת – מכון משפטי ארץ</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="public-head">
+    <h1>מאגר שו"ת</h1>
+    <p>מכון משפטי ארץ · <a href="ask.html" style="color:inherit">לשאלה חדשה</a></p>
+  </header>
+  <main>
+    <div id="setupView"></div>
+    <div class="card medium" style="margin-top:0">
+      <div class="row">
+        <input id="search" class="grow" placeholder="חיפוש בשאלות ובתשובות">
+        <select id="topic" style="width:auto"></select>
+      </div>
+    </div>
+    <div style="max-width:720px;margin:0 auto">
+      <p id="count" class="muted small"></p>
+      <div id="list"><p class="muted">טוען...</p></div>
+    </div>
+  </main>
+  <script type="module" src="js/archive.js"></script>
+</body>
+</html>
