@@ -8,20 +8,21 @@
   <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="icon" type="image/png" href="img/favicon.png">
   <meta name="theme-color" content="#c19937">
-  <link rel="stylesheet" href="css/style.css?v=20261015b">
+  <link rel="stylesheet" href="css/style.css?v=20261015c">
 </head>
 <body>
+  <a class="skip-link" href="#content">דילוג לתוכן</a>
   <header class="public-head">
     <picture><source srcset="img/logo-light.png" media="(prefers-color-scheme: dark)"><img src="img/logo.png" class="logo-img" width="140" height="48" alt="מכון משפטי ארץ"></picture>
     <h1>מאגר שו"ת</h1>
     <p><a href="ask.html">לשאלה חדשה</a></p>
   </header>
-  <main>
+  <main id="content">
     <div id="setupView"></div>
     <div class="card medium" style="margin-top:0">
       <div class="row">
-        <input id="search" class="grow" placeholder="חיפוש בשאלות ובתשובות">
-        <select id="topic" style="width:auto"></select>
+        <input id="search" class="grow" type="search" placeholder="חיפוש בשאלות ובתשובות" aria-label="חיפוש בשאלות ובתשובות">
+        <select id="topic" style="width:auto" aria-label="סינון לפי קטגוריה"></select>
       </div>
     </div>
     <div style="max-width:720px;margin:0 auto">
@@ -29,6 +30,10 @@
       <div id="list"><p class="muted">טוען...</p></div>
     </div>
   </main>
-  <script type="module" src="js/archive.js?v=20261015b"></script>
+  <footer class="site-footer">
+    <a href="ask.html">שאל את הרב</a> · <a href="shut.html">מאגר שו"ת</a> · <a href="accessibility.html">הצהרת נגישות</a> · <a href="privacy.html">מדיניות פרטיות</a>
+    <div>© מכון משפטי ארץ</div>
+  </footer>
+  <script type="module" src="js/archive.js?v=20261015c"></script>
 </body>
 </html>

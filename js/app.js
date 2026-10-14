@@ -9,7 +9,7 @@ import {
 import {
   db, auth, configReady, esc, normEmail, normPhone, toDate, fmtDate, toast, setupMissingNotice,
   DEFAULT_TAXONOMY, normTaxonomy, autoTagsFor
-} from "./common.js?v=20261015b";
+} from "./common.js?v=20261015c";
 
 // ---------- קבועים ----------
 const STAFF_ROLES = ["admin", "head", "rabbi", "staff"];
@@ -210,7 +210,7 @@ function newContactData(d) {
     email: (d.email || "").trim(), emailKey: normEmail(d.email),
     phone: (d.phone || "").trim(), phoneKey: normPhone(d.phone),
     city: (d.city || "").trim(), tags: d.tags || [], notes: d.notes || "",
-    consentEmail: { status: d.consentEmail === true ? "yes" : "unknown", at: Timestamp.now(), source: d.source || "" },
+    consentEmail: { status: d.consentEmail === true ? "yes" : d.consentEmail === false ? "no" : "unknown", at: Timestamp.now(), source: d.source || "" },
     consentSms: { status: "unknown", at: Timestamp.now(), source: "" },
     source: d.source || "", createdAt: Timestamp.now()
   };
@@ -1014,7 +1014,7 @@ async function runImport() {
     const email = String(val(r, "email") || "").trim(), phone = String(val(r, "phone") || "").trim();
     const eK = normEmail(email), pK = normPhone(phone);
     if (!eK && !pK) { skipped++; continue; }
-    const consent = map.consent ? truthy(val(r, "consent")) : false;
+    const consent = map.consent ? truthy(val(r, "consent")) : undefined;
     let id = (eK && idxE.get(eK)) || (pK && idxP.get(pK));
     if (!id) {
       const ref = doc(collection(db, "contacts"));

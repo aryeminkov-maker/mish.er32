@@ -8,36 +8,51 @@
   <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="icon" type="image/png" href="img/favicon.png">
   <meta name="theme-color" content="#c19937">
-  <link rel="stylesheet" href="css/style.css?v=20261015b">
+  <link rel="stylesheet" href="css/style.css?v=20261015c">
 </head>
 <body>
+  <a class="skip-link" href="#content">דילוג לתוכן</a>
   <header class="public-head">
     <picture><source srcset="img/logo-light.png" media="(prefers-color-scheme: dark)"><img src="img/logo.png" class="logo-img" width="140" height="48" alt="מכון משפטי ארץ"></picture>
     <h1>שאל את הרב</h1>
   </header>
-  <main>
+  <main id="content">
     <div id="setupView"></div>
     <div class="card medium" id="formCard">
       <form id="askForm">
         <div class="grid2">
-          <div class="field"><label>שם פרטי *</label><input id="firstName" required maxlength="60"></div>
-          <div class="field"><label>שם משפחה</label><input id="lastName" maxlength="60"></div>
-          <div class="field"><label>מייל *</label><input id="email" type="email" required maxlength="120"></div>
-          <div class="field"><label>טלפון</label><input id="phone" type="tel" maxlength="20"></div>
+          <div class="field"><label for="firstName">שם פרטי *</label><input id="firstName" required maxlength="60" autocomplete="given-name"></div>
+          <div class="field"><label for="lastName">שם משפחה</label><input id="lastName" maxlength="60" autocomplete="family-name"></div>
+          <div class="field"><label for="email">מייל *</label><input id="email" type="email" required maxlength="120" autocomplete="email"></div>
+          <div class="field"><label for="phone">טלפון</label><input id="phone" type="tel" maxlength="20" autocomplete="tel"></div>
         </div>
-        <div class="field"><label>קטגוריה</label><select id="topic"></select></div>
-        <div class="field"><label>השאלה *</label><textarea id="text" required maxlength="5000" style="min-height:160px"></textarea></div>
-        <label class="check"><input type="checkbox" id="consent" required> אני מאשר/ת לקבל עדכונים מהמכון במייל (אפשר להסיר בכל עת) *</label>
-        <p class="small muted">פרטיך ישמשו לצורך מענה לשאלה. שאלות עשויות להתפרסם במאגר השו"ת בעילום שם.</p>
+        <div class="field"><label for="topic">קטגוריה</label><select id="topic"></select></div>
+        <div class="field"><label for="text">השאלה *</label><textarea id="text" required maxlength="5000" style="min-height:160px"></textarea></div>
+        <label class="check" for="consent"><input type="checkbox" id="consent"> <span>אני מאשר/ת לקבל עדכונים מהמכון במייל (אפשר להסיר בכל עת)</span></label>
+        <p class="small muted">פרטיך ישמשו לצורך מענה לשאלה. שאלות עשויות להתפרסם במאגר השו"ת בעילום שם. פרטים נוספים ב<a href="privacy.html">מדיניות הפרטיות</a>.</p>
         <button class="primary" type="submit" id="send">שליחת השאלה</button>
       </form>
     </div>
     <div class="card medium hidden" id="thanks">
       <h2>השאלה התקבלה, תודה!</h2>
-      <p>התשובה תישלח אליך למייל. בינתיים אפשר לעיין ב<a href="shut.html">מאגר השו"ת</a>.</p>
+      <p><span id="thanksText"></span> בינתיים אפשר לעיין ב<a href="shut.html">מאגר השו"ת</a>.</p>
       <button onclick="location.reload()">שאלה נוספת</button>
     </div>
   </main>
-  <script type="module" src="js/ask.js?v=20261015b"></script>
+  <footer class="site-footer">
+    <a href="ask.html">שאל את הרב</a> · <a href="shut.html">מאגר שו"ת</a> · <a href="accessibility.html">הצהרת נגישות</a> · <a href="privacy.html">מדיניות פרטיות</a>
+    <div>© מכון משפטי ארץ</div>
+  </footer>
+  <dialog id="consentDialog" aria-labelledby="cdTitle">
+    <h2 id="cdTitle">רגע לפני השליחה</h2>
+    <p>שמנו לב שלא אישרת קבלת דיוור, זה אומר שלא תוכל לקבל את התשובה לשאלה שלך. האם אתה רוצה לאשר בכל זאת?</p>
+    <div class="row">
+      <button class="primary" id="cdYes" type="button">כן, אני מאשר/ת ושולח/ת</button>
+      <button id="cdNo" type="button">שליחה בלי אישור</button>
+      <button class="link" id="cdBack" type="button">חזרה לטופס</button>
+    </div>
+  </dialog>
+
+  <script type="module" src="js/ask.js?v=20261015c"></script>
 </body>
 </html>

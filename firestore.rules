@@ -60,7 +60,7 @@ service cloud.firestore {
         && request.resource.data.firstName is string && request.resource.data.firstName.size() <= 60
         && request.resource.data.lastName is string && request.resource.data.lastName.size() <= 60
         && request.resource.data.phone is string && request.resource.data.phone.size() <= 20
-        && request.resource.data.consentEmail == true
+        && request.resource.data.consentEmail is bool
         && request.resource.data.topic is string && request.resource.data.topic.size() <= 60
       );
       allow read, update: if isStaff();

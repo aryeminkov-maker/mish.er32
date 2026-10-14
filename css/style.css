@@ -173,3 +173,29 @@ details.qa .ans { margin-top: 10px; padding-top: 10px; border-top: 1px solid var
   .topbar .logo-img { height: 34px; }
   .hide-mobile { display: none; }
 }
+
+/* ===== נגישות ===== */
+.skip-link { position: absolute; right: 12px; top: -60px; z-index: 200; background: var(--brand); color: var(--brand-ink);
+  padding: 8px 14px; border-radius: 8px; text-decoration: none; transition: top .15s; }
+.skip-link:focus { top: 12px; }
+:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* ===== כותרת תחתונה ===== */
+.site-footer { text-align: center; padding: 22px 16px 30px; color: var(--ink-2); font-size: .88rem; border-top: 1px solid var(--line); margin-top: 24px; }
+.site-footer a { color: var(--gold-ink); }
+.site-footer div { margin-top: 6px; }
+
+/* ===== חלונית אישור ===== */
+dialog { border: 0; border-radius: 12px; padding: 22px; max-width: 460px; width: calc(100% - 32px);
+  background: var(--surface); color: var(--ink); box-shadow: 0 10px 40px rgba(0,0,0,.25); }
+dialog::backdrop { background: rgba(0,0,0,.45); }
+dialog h2 { color: var(--gold-ink); }
+dialog .row { margin-top: 16px; }
+
+/* ===== עמודים משפטיים ===== */
+.legal h2 { margin-top: 1.4em; color: var(--gold-ink); }
+.legal ul { padding-right: 20px; }
+.legal li { margin-bottom: 6px; }
+.legal mark { background: #fff2a8; color: #1c1b19; padding: 0 3px; border-radius: 3px; }
+.legal .note { background: var(--warn-soft); color: var(--warn); padding: 8px 12px; border-radius: 8px; font-size: .9rem; }

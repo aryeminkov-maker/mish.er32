@@ -2,7 +2,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getAuth } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { firebaseConfig, ORG_NAME, TOPICS } from "./config.js?v=20261015b";
+import { firebaseConfig, ORG_NAME, TOPICS } from "./config.js?v=20261015c";
 
 export { ORG_NAME, TOPICS };
 
@@ -50,6 +50,8 @@ export function toast(msg, kind = "") {
   if (!box) {
     box = document.createElement("div");
     box.id = "toasts";
+    box.setAttribute("role", "status");
+    box.setAttribute("aria-live", "polite");
     document.body.appendChild(box);
   }
   const el = document.createElement("div");

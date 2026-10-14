@@ -8,12 +8,14 @@
   <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="icon" type="image/png" href="img/favicon.png">
   <meta name="theme-color" content="#c19937">
-  <link rel="stylesheet" href="css/style.css?v=20261015b">
+  <link rel="stylesheet" href="css/style.css?v=20261015c">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
+  <a class="skip-link" href="#content">דילוג לתוכן</a>
 
   <!-- כניסה -->
+  <div id="content" tabindex="-1"></div>
   <section id="loginView" class="hidden">
     <div class="card narrow">
       <picture><source srcset="img/logo-light.png" media="(prefers-color-scheme: dark)"><img src="img/logo.png" class="login-logo" width="260" height="89" alt="מכון משפטי ארץ"></picture>
@@ -49,12 +51,16 @@
       </nav>
       <span class="who"><span id="whoName"></span><button id="btnLogout">יציאה</button></span>
     </header>
-    <main id="main"></main>
+    <main id="main" tabindex="-1"></main>
   </section>
 
   <div id="setupView"></div>
   <div id="modalRoot"></div>
+  <footer class="site-footer">
+    <a href="ask.html">שאל את הרב</a> · <a href="shut.html">מאגר שו"ת</a> · <a href="accessibility.html">הצהרת נגישות</a> · <a href="privacy.html">מדיניות פרטיות</a>
+    <div>© מכון משפטי ארץ</div>
+  </footer>
 
-  <script type="module" src="js/app.js?v=20261015b"></script>
+  <script type="module" src="js/app.js?v=20261015c"></script>
 </body>
 </html>
