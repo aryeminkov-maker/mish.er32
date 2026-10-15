@@ -169,8 +169,20 @@ details.qa .ans { margin-top: 10px; padding-top: 10px; border-top: 1px solid var
 
 @media (max-width: 640px) {
   main { padding: 14px 10px 60px; }
-  .topbar { padding: 8px 12px; }
-  .topbar .logo-img { height: 34px; }
+  /* שורה עליונה: לוגו מימין, משתמש ויציאה משמאל. מתחת: תפריט אחד שנגלל לרוחב */
+  .topbar { padding: 8px 12px 0; gap: 6px 10px; flex-wrap: wrap; }
+  .topbar .logo-img { height: 34px; margin-left: 0; }
+  .topbar picture { order: 1; }
+  .topbar .who { order: 2; margin-inline-start: auto; display: flex; align-items: center; min-width: 0; font-size: .8rem; }
+  .topbar .who #whoName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 42vw; }
+  .topbar .who button { padding: 5px 10px; font-size: .85rem; flex: none; }
+  .topbar nav {
+    order: 3; flex: 1 0 100%; flex-wrap: nowrap; overflow-x: auto; gap: 2px;
+    margin: 0 -12px; padding: 4px 12px 6px; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+    border-top: 1px solid var(--line, rgba(0,0,0,.08));
+  }
+  .topbar nav::-webkit-scrollbar { display: none; }
+  .topbar nav button { flex: none; white-space: nowrap; padding: 8px 12px; }
   .hide-mobile { display: none; }
 }
 
@@ -299,3 +311,22 @@ img.thumb { width: 100%; height: auto; border: 1px solid var(--line); border-rad
 .ds-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .ds-chips .badge { cursor: pointer; font: inherit; font-size: .78rem; }
 .ds-layers { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+
+/* ===== דיווח חודשי ===== */
+.month-nav { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.month-nav b { min-width: 110px; text-align: center; font-size: 1.05rem; }
+.month-nav button:not(.link) { padding: 5px 12px; }
+.goal-box { background: var(--brand-soft); border-right: 4px solid var(--gold); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; }
+.mrep-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 12px; }
+.mrep-grid > div { background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.mrep-grid .pre { margin-top: 4px; line-height: 1.55; }
+@media (max-width: 760px) { .mrep-grid { grid-template-columns: 1fr; } }
+.print-only { display: none; }
+@media print {
+  .topbar, .site-footer, .no-print, .month-nav button, #toasts { display: none !important; }
+  .print-only { display: block; }
+  body { background: #fff; }
+  main { max-width: none; padding: 0; }
+  .card { box-shadow: none; break-inside: avoid; border-color: #ccc; }
+  .mrep-grid > div { background: #fff; }
+}

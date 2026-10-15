@@ -2,7 +2,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { firebaseConfig, ORG_NAME, TOPICS } from "./config.js?v=20261020";
+import { firebaseConfig, ORG_NAME, TOPICS } from "./config.js?v=20261022";
 
 export { ORG_NAME, TOPICS };
 

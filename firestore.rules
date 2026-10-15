@@ -93,38 +93,21 @@ service cloud.firestore {
       allow write: if hasRole(['admin', 'head']);
     }
 
-    // ---------- מחקר ----------
-    // חוקר רואה רק את שלו; רכז מחקר, רכז הרכזים ומנהל רואים הכול
-    match /projects/{id} {
-      allow read: if isResearchAdmin() || (isResearcher() && resource.data.researcherEmail == myEmail());
-      allow create, delete: if isResearchAdmin();
-      allow update: if isResearchAdmin()
-        || (isResearcher() && resource.data.researcherEmail == myEmail()
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stages', 'researcherNote', 'updatedAt']));
-    }
-    match /tasks/{id} {
-      allow read: if isResearchAdmin() || (isResearcher() && resource.data.researcherEmail == myEmail());
-      allow create, delete: if isResearchAdmin();
-      allow update: if isResearchAdmin()
-        || (isResearcher() && resource.data.researcherEmail == myEmail()
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'doneAt', 'researcherNote']));
-    }
-    // דיווח שבועי – מזהה המסמך: מייל_תאריך-תחילת-השבוע
-    match /reports/{id} {
+    // ---------- מחקר: דיווח חודשי ----------
+    // חוקר רואה וכותב רק את שלו; רכז מחקר, רכז הרכזים ומנהל רואים את כולם ויכולים להוסיף הערה
+    // מזהה המסמך: מייל_YYYY-MM
+    match /monthly/{id} {
       allow read: if isResearchAdmin() || (isResearcher() && resource.data.researcherEmail == myEmail());
       allow create: if isResearcher() && request.resource.data.researcherEmail == myEmail()
-        && id == myEmail() + '_' + request.resource.data.week;
+        && request.resource.data.month is string && request.resource.data.month.size() == 7
+        && id == myEmail() + '_' + request.resource.data.month
+        && request.resource.data.keys().hasOnly(['researcherEmail', 'researcherName', 'month', 'achieved', 'nextGoal', 'createdAt', 'updatedAt'])
+        && request.resource.data.achieved.size() < 20000 && request.resource.data.nextGoal.size() < 20000;
       allow update: if (isResearcher() && resource.data.researcherEmail == myEmail()
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['did', 'next', 'blockers', 'updatedAt']))
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['achieved', 'nextGoal', 'updatedAt'])
+            && request.resource.data.achieved.size() < 20000 && request.resource.data.nextGoal.size() < 20000)
         || (isResearchAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['coordComment', 'coordAt', 'coordBy']));
       allow delete: if isAdmin();
-    }
-    match /hours/{id} {
-      allow read: if isResearchAdmin() || (isResearcher() && resource.data.researcherEmail == myEmail());
-      allow create: if (isResearcher() && request.resource.data.researcherEmail == myEmail()) || isResearchAdmin();
-      allow update: if isResearchAdmin() || (isResearcher() && resource.data.researcherEmail == myEmail()
-        && request.resource.data.researcherEmail == myEmail());
-      allow delete: if isResearchAdmin() || (isResearcher() && resource.data.researcherEmail == myEmail());
     }
 
     // ---------- השתלמויות ----------

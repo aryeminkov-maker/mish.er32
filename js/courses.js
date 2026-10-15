@@ -2,13 +2,13 @@
 import {
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, query, where, writeBatch, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { db, normEmail, readWorkbook } from "./common.js?v=20261020";
+import { db, normEmail, readWorkbook } from "./common.js?v=20261022";
 import {
   todayIso, fmtIso, parseIso, isoDate, addDaysIso, dayName, HEB_MONTHS, HEB_DAYS, conflictsFor, allConflicts, norm, isUrl
-} from "./util.js?v=20261020";
-import { makeAd, makeBackground, loadDesigns, courseVars, lectureTopic, VAR_NAMES } from "./media.js?v=20261020";
-import { openDesigner, thumbnail, exportPng, defaultAd, defaultBg } from "./designer.js?v=20261020";
-import { composeMail } from "./mail.js?v=20261020";
+} from "./util.js?v=20261022";
+import { makeAd, makeBackground, loadDesigns, courseVars, lectureTopic, VAR_NAMES } from "./media.js?v=20261022";
+import { openDesigner, thumbnail, exportPng, defaultAd, defaultBg } from "./designer.js?v=20261022";
+import { composeMail } from "./mail.js?v=20261022";
 
 const C_STATUS = { draft: "טיוטה", open: "פתוחה להרשמה", closed: "ההרשמה סגורה", done: "הסתיימה" };
 const C_BADGE = { draft: "", open: "good", closed: "warn", done: "info" };

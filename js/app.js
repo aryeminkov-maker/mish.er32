@@ -9,10 +9,10 @@ import {
 import {
   db, auth, configReady, esc, normEmail, normPhone, toDate, fmtDate, toast, setupMissingNotice,
   DEFAULT_TAXONOMY, normTaxonomy, autoTagsFor, readWorkbook
-} from "./common.js?v=20261020";
-import { renderCourses, renderCalendar, courseSummary } from "./courses.js?v=20261020";
-import { renderResearch, researchSummary } from "./research.js?v=20261020";
-import { composeMail, preloadMail, mailConfigured, mailFrom, mailConnected } from "./mail.js?v=20261020";
+} from "./common.js?v=20261022";
+import { renderCourses, renderCalendar, courseSummary } from "./courses.js?v=20261022";
+import { renderResearch, researchSummary } from "./research.js?v=20261022";
+import { composeMail, preloadMail, mailConfigured, mailFrom, mailConnected } from "./mail.js?v=20261022";
 
 // ---------- קבועים ----------
 const ROLE_LABEL = {
@@ -51,7 +51,7 @@ const S = {
   // השתלמויות
   courses: new Map(), sessions: new Map(), regs: new Map(), resources: { zoomAccounts: ["חשבון הזום של המכון"] },
   // מחקר
-  projects: new Map(), tasks: new Map(), reports: new Map(), hours: new Map(),
+  monthly: new Map(),
   // מיילים מתוזמנים
   mailQueue: new Map(), scheduler: null,
   unsub: []
@@ -198,9 +198,7 @@ function subscribeAll() {
   if (inGroup(RESEARCH_ROLES)) {
     // חוקר מקבל רק את הרשומות שלו
     const mine = (name) => role() === "researcher" ? query(collection(db, name), where("researcherEmail", "==", myEmail())) : collection(db, name);
-    for (const [name, map] of [["projects", S.projects], ["tasks", S.tasks], ["reports", S.reports], ["hours", S.hours]]) {
-      subQ(name, mine(name), intoMap(map));
-    }
+    subQ("monthly", mine("monthly"), intoMap(S.monthly));
   }
 }
 
@@ -315,6 +313,9 @@ function go(view) {
   S.view = view;
   location.hash = view;
   document.querySelectorAll("#nav button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
+  // במובייל התפריט נגלל לרוחב – מוודאים שהלשונית הפעילה נראית
+  const act = document.querySelector("#nav button.active");
+  if (act) { const nav = act.parentElement; nav.scrollLeft += act.getBoundingClientRect().left - nav.getBoundingClientRect().left - (nav.clientWidth - act.offsetWidth) / 2; }
   renderView(true);
 }
 function refreshView() { renderView(false); }

@@ -1,8 +1,8 @@
 // ===== שליחת מיילים מחשבון ה-Gmail של המכון (Gmail API) =====
 // השליחה נעשית מהדפדפן: מי ששולח מתחבר פעם בשעה לחשבון המכון בחלון של Google.
 import { collection, addDoc, doc, updateDoc, serverTimestamp, Timestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { db } from "./common.js?v=20261020";
-import { MAIL_CLIENT_ID, MAIL_FROM, ORG_NAME } from "./config.js?v=20261020";
+import { db } from "./common.js?v=20261022";
+import { MAIL_CLIENT_ID, MAIL_FROM, ORG_NAME } from "./config.js?v=20261022";
 
 const SCOPE = "https://www.googleapis.com/auth/gmail.send email";
 const FROM = String(MAIL_FROM || "").trim().toLowerCase();

@@ -3,9 +3,9 @@ import {
   collection, doc, getDoc, getDocs, query, where, serverTimestamp, writeBatch
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { db, auth, configReady, esc, toast, setupMissingNotice, googleSignIn, handleRedirectResult, normEmail } from "./common.js?v=20261020";
-import { fmtIso, dayName, todayIso, toMin } from "./util.js?v=20261020";
-import { makeBackground } from "./media.js?v=20261020";
+import { db, auth, configReady, esc, toast, setupMissingNotice, googleSignIn, handleRedirectResult, normEmail } from "./common.js?v=20261022";
+import { fmtIso, dayName, todayIso, toMin } from "./util.js?v=20261022";
+import { makeBackground } from "./media.js?v=20261022";
 
 const $ = (id) => document.getElementById(id);
 const SCH = { pending: "ממתינה לאישור", approved: "אושרה", rejected: "לא אושרה" };
