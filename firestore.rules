@@ -4,7 +4,8 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // כניסה רק עם חשבון Google מאומת, שהמייל שלו נמצא ברשימת המורשים (allowedEmails)
+    // ---------- זהות ותפקידים ----------
+    // כניסה רק עם חשבון Google מאומת
     function signedIn() {
       return request.auth != null
         && request.auth.token.email_verified == true
@@ -13,25 +14,40 @@ service cloud.firestore {
     function myEmail() { return request.auth.token.email.lower(); }
     function allowedDoc() { return /databases/$(database)/documents/allowedEmails/$(myEmail()); }
     function myRole() { return get(allowedDoc()).data.role; }
-    function isStaff() {
-      return signedIn() && exists(allowedDoc()) && myRole() in ['admin', 'head', 'rabbi', 'staff'];
-    }
-    function isAdmin() { return isStaff() && myRole() == 'admin'; }
-    function isEditor() { return isStaff() && myRole() in ['admin', 'head', 'staff']; }
+    function hasRole(roles) { return signedIn() && exists(allowedDoc()) && myRole() in roles; }
 
-    // רשימת המשתמשים המורשים – רק מנהל מוסיף, משנה תפקיד ומסיר
+    // כל אנשי הצוות (מי שנמצא ברשימת המורשים)
+    function isTeam() { return hasRole(['admin', 'head', 'rabbi', 'staff', 'researcher', 'research_coord', 'course_manager']); }
+    function isAdmin() { return hasRole(['admin']); }
+    // ניהול קשרים ושו"ת
+    function isStaff() { return hasRole(['admin', 'head', 'rabbi', 'staff']); }
+    function isEditor() { return hasRole(['admin', 'head', 'staff']); }
+    // מחקר
+    function isResearchAdmin() { return hasRole(['admin', 'head', 'research_coord']); }
+    function isResearcher() { return hasRole(['researcher']); }
+    // השתלמויות
+    function isCourseAll() { return hasRole(['admin', 'head', 'staff']); }           // כל ההשתלמויות
+    function isCourseTeam() { return hasRole(['admin', 'head', 'staff', 'course_manager']); }
+    function courseDoc(cid) { return get(/databases/$(database)/documents/courses/$(cid)).data; }
+    function managesCourse(cid) {
+      return isCourseAll() || (hasRole(['course_manager']) && myEmail() in courseDoc(cid).managerEmails);
+    }
+    // הרשאת גישה של משתלם מאושר – מסמך courseAccess/השתלמות_מייל שהרכז יוצר באישור
+    function registeredTo(cid) {
+      return signedIn() && exists(/databases/$(database)/documents/courseAccess/$(cid + '_' + myEmail()));
+    }
+
+    // ---------- משתמשים מורשים ----------
     match /allowedEmails/{email} {
-      // כל משתמש יכול לבדוק את עצמו; הצוות רואה את כל הרשימה (לשיוך שאלות לרבנים)
       allow get: if signedIn() && email == myEmail();
-      allow read: if isStaff();
+      allow read: if isTeam();
       allow create, delete: if isAdmin() && email == email.lower();
-      // מנהל משנה הכול; משתמש רגיל יכול לעדכן רק את שמו ואת זמן הכניסה האחרון שלו
       allow update: if isAdmin()
-        || (isStaff() && email == myEmail()
+        || (isTeam() && email == myEmail()
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'lastLogin']));
     }
 
-    // אנשי קשר – כל הצוות קורא ויוצר (גם רב, לצורך קישור שאלות), עריכה לעורכים, מחיקה למנהל
+    // ---------- ניהול קשרים ----------
     match /contacts/{id} {
       allow read, create: if isStaff();
       allow update: if isEditor()
@@ -39,15 +55,15 @@ service cloud.firestore {
               .hasOnly(['firstName', 'lastName', 'email', 'emailKey', 'phone', 'phoneKey', 'city', 'consentEmail']));
       allow delete: if isAdmin();
     }
-
-    // היסטוריה (תרומות, השתלמויות, ספרים, הערות)
     match /activities/{id} {
       allow read: if isStaff();
-      allow create, update: if isEditor();
-      allow delete: if isEditor();
+      allow create, update, delete: if isEditor();
+    }
+    match /savedLists/{id} {
+      allow read, write: if isStaff();
     }
 
-    // שאלות שו"ת – הציבור יכול רק לשלוח שאלה חדשה, בלי לקרוא
+    // ---------- שו"ת ----------
     match /questions/{id} {
       allow create: if isStaff() || (
         request.resource.data.keys().hasOnly(['firstName', 'lastName', 'email', 'phone', 'topic', 'text', 'consentEmail', 'status', 'contactId', 'origin', 'createdAt'])
@@ -66,23 +82,140 @@ service cloud.firestore {
       allow read, update: if isStaff();
       allow delete: if isAdmin();
     }
-
-    // מאגר שו"ת ציבורי – כולם קוראים, רק הצוות כותב
     match /publicQA/{id} {
       allow read: if true;
       allow write: if isStaff();
     }
 
-    // הגדרות (קטגוריות ותגיות) – כולם קוראים (לטופס הציבורי), מנהל ורכז הרכזים עורכים
+    // ---------- הגדרות (קטגוריות, תגיות, חשבונות זום) ----------
     match /settings/{id} {
       allow read: if true;
-      allow write: if isStaff() && myRole() in ['admin', 'head'];
+      allow write: if hasRole(['admin', 'head']);
     }
 
-    // רשימות שמורות (סינונים)
-    match /savedLists/{id} {
-      allow read, create: if isStaff();
-      allow update, delete: if isStaff();
+    // ---------- מחקר ----------
+    // חוקר רואה רק את שלו; רכז מחקר, רכז הרכזים ומנהל רואים הכול
+    match /projects/{id} {
+      allow read: if isResearchAdmin() || (isResearcher() && resource.data.researcherEmail == myEmail());
+      allow create, delete: if isResearchAdmin();
+      allow update: if isResearchAdmin()
+        || (isResearcher() && resource.data.researcherEmail == myEmail()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stages', 'researcherNote', 'updatedAt']));
+    }
+    match /tasks/{id} {
+      allow read: if isResearchAdmin() || (isResearcher() && resource.data.researcherEmail == myEmail());
+      allow create, delete: if isResearchAdmin();
+      allow update: if isResearchAdmin()
+        || (isResearcher() && resource.data.researcherEmail == myEmail()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'doneAt', 'researcherNote']));
+    }
+    // דיווח שבועי – מזהה המסמך: מייל_תאריך-תחילת-השבוע
+    match /reports/{id} {
+      allow read: if isResearchAdmin() || (isResearcher() && resource.data.researcherEmail == myEmail());
+      allow create: if isResearcher() && request.resource.data.researcherEmail == myEmail()
+        && id == myEmail() + '_' + request.resource.data.week;
+      allow update: if (isResearcher() && resource.data.researcherEmail == myEmail()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['did', 'next', 'blockers', 'updatedAt']))
+        || (isResearchAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['coordComment', 'coordAt', 'coordBy']));
+      allow delete: if isAdmin();
+    }
+    match /hours/{id} {
+      allow read: if isResearchAdmin() || (isResearcher() && resource.data.researcherEmail == myEmail());
+      allow create: if (isResearcher() && request.resource.data.researcherEmail == myEmail()) || isResearchAdmin();
+      allow update: if isResearchAdmin() || (isResearcher() && resource.data.researcherEmail == myEmail()
+        && request.resource.data.researcherEmail == myEmail());
+      allow delete: if isResearchAdmin() || (isResearcher() && resource.data.researcherEmail == myEmail());
+    }
+
+    // ---------- השתלמויות ----------
+    // השתלמות שאינה טיוטה גלויה לכולם (לדף הנחיתה)
+    match /courses/{cid} {
+      allow read: if resource.data.status != 'draft' || isCourseTeam();
+      allow create: if isCourseAll()
+        || (hasRole(['course_manager']) && myEmail() in request.resource.data.managerEmails);
+      allow update: if managesCourse(cid);
+      allow delete: if hasRole(['admin', 'head']);
+    }
+    // מפגשים – פרטים כלליים גלויים לכולם; קישור הזום וההקלטה בנפרד
+    match /sessions/{sid} {
+      allow read: if true;
+      allow create: if managesCourse(request.resource.data.courseId);
+      allow update: if managesCourse(resource.data.courseId);
+      allow delete: if isCourseTeam() && (resource == null || managesCourse(resource.data.courseId));
+    }
+    // עיצוב המודעה ורקע הזום של השתלמות
+    match /courseMedia/{cid} {
+      allow read: if true;
+      allow write: if managesCourse(cid);
+    }
+    // קישור זום – רק לצוות ולנרשמים
+    match /sessionPrivate/{sid} {
+      allow read: if isCourseTeam() || registeredTo(resource.data.courseId);
+      allow create: if managesCourse(request.resource.data.courseId);
+      allow update: if managesCourse(resource.data.courseId);
+      allow delete: if isCourseTeam() && (resource == null || managesCourse(resource.data.courseId));
+    }
+    // הקלטות – לצוות, ולנרשמים רק כשהרכז פתח את ההקלטות
+    match /recordings/{sid} {
+      allow read: if isCourseTeam()
+        || (registeredTo(resource.data.courseId) && courseDoc(resource.data.courseId).recordingsOpen == true);
+      allow create: if managesCourse(request.resource.data.courseId);
+      allow update: if managesCourse(resource.data.courseId);
+      // מחיקה של מסמך שלא קיים (מפגש בלי הקלטה) מותרת לצוות
+      allow delete: if isCourseTeam() && (resource == null || managesCourse(resource.data.courseId));
+    }
+    // הרשמות – כל אחד יכול להירשם (בלי חשבון); ההרשמה ממתינה לאישור הרכז
+    match /registrations/{rid} {
+      allow read: if isCourseAll()
+        || (hasRole(['course_manager']) && myEmail() in resource.data.managerEmails)
+        || (signedIn() && resource.data.email == myEmail());
+      allow create: if (
+          request.resource.data.keys().hasOnly(['courseId', 'email', 'firstName', 'lastName', 'phone', 'city',
+             'consentEmail', 'status', 'managerEmails', 'scholarship', 'note', 'source', 'createdAt'])
+          && request.resource.data.status == 'pending'
+          && request.resource.data.source == 'טופס באתר'
+          && courseDoc(request.resource.data.courseId).status == 'open'
+          && request.resource.data.managerEmails == courseDoc(request.resource.data.courseId).managerEmails
+          && request.resource.data.email is string && request.resource.data.email.size() > 3 && request.resource.data.email.size() <= 120
+          && request.resource.data.firstName is string && request.resource.data.firstName.size() > 0 && request.resource.data.firstName.size() <= 60
+          && request.resource.data.lastName is string && request.resource.data.lastName.size() <= 60
+          && request.resource.data.phone is string && request.resource.data.phone.size() <= 20
+          && request.resource.data.city is string && request.resource.data.city.size() <= 60
+          && request.resource.data.note is string && request.resource.data.note.size() <= 1000
+          && request.resource.data.consentEmail is bool
+          && (!('scholarship' in request.resource.data) || (request.resource.data.scholarship.status == 'pending'
+                && request.resource.data.scholarship.reason.size() <= 1000))
+          && request.resource.data.createdAt == request.time
+        ) || (isCourseTeam() && managesCourse(request.resource.data.courseId));
+      // הרכז מעדכן הכול; המשתלם יכול לעדכן פרטי קשר ולבטל את ההרשמה שלו
+      allow update: if managesCourse(resource.data.courseId)
+        || (signedIn() && resource.data.email == myEmail()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['phone', 'city', 'consentEmail', 'status', 'updatedAt'])
+            && request.resource.data.status in [resource.data.status, 'cancelled']);
+      allow delete: if hasRole(['admin', 'head']);
+    }
+    // הרשאות גישה לאזור האישי – מזהה: השתלמות_מייל
+    match /courseAccess/{aid} {
+      allow read: if isCourseTeam() || (signedIn() && resource.data.email == myEmail());
+      allow create, update: if managesCourse(request.resource.data.courseId)
+        && aid == request.resource.data.courseId + '_' + request.resource.data.email;
+      allow delete: if (isCourseTeam() && (resource == null || managesCourse(resource.data.courseId)))
+        || (signedIn() && resource.data.email == myEmail());
+    }
+    // מיילים מתוזמנים – נשלחים על ידי הסקריפט בחשבון ה-Gmail של המכון (שעוקף את החוקים בהרשאת IAM)
+    match /mailQueue/{id} {
+      allow read: if hasRole(['admin', 'head']) || (isTeam() && resource.data.createdBy == myEmail());
+      allow create: if isTeam() && request.resource.data.createdBy == myEmail() && request.resource.data.status == 'scheduled'
+        && request.resource.data.recipients.size() <= 400;
+      // ביטול בלבד, ורק לפני שהשליחה התחילה
+      allow update: if (hasRole(['admin', 'head']) || (isTeam() && resource.data.createdBy == myEmail()))
+        && resource.data.status == 'scheduled' && request.resource.data.status == 'cancelled'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelledAt', 'cancelledBy']);
+    }
+    // יומן מיילים שנשלחו מהמערכת
+    match /mailLog/{id} {
+      allow read: if isTeam();
+      allow create: if isTeam() && request.resource.data.by == myEmail();
     }
   }
 }

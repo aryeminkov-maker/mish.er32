@@ -1,8 +1,8 @@
 // ===== פונקציות משותפות לכל הדפים =====
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { getAuth } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { firebaseConfig, ORG_NAME, TOPICS } from "./config.js?v=20261015c";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { firebaseConfig, ORG_NAME, TOPICS } from "./config.js?v=20261020";
 
 export { ORG_NAME, TOPICS };
 
@@ -103,4 +103,32 @@ export function normText(s) {
 export function autoTagsFor(text, tags) {
   const t = normText(text);
   return tags.filter((g) => g.keywords.some((k) => t.includes(normText(k).trim()))).map((g) => g.name);
+}
+
+// ---------- כניסה עם Google (משותף לכל הדפים) ----------
+export async function googleSignIn() {
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: "select_account" });
+  try { await signInWithPopup(auth, provider); }
+  catch (e) {
+    if (["auth/popup-blocked", "auth/operation-not-supported-in-this-environment"].includes(e.code)) await signInWithRedirect(auth, provider);
+    else if (e.code === "auth/unauthorized-domain") toast("הדומיין של האתר לא אושר ב-Firebase (Authentication ← Settings ← Authorized domains)", "bad");
+    else if (e.code !== "auth/popup-closed-by-user" && e.code !== "auth/cancelled-popup-request") toast("הכניסה נכשלה: " + e.code, "bad");
+  }
+}
+export function handleRedirectResult() {
+  if (auth) getRedirectResult(auth).catch((e) => toast("הכניסה נכשלה: " + e.code, "bad"));
+}
+
+// ---------- קריאת קובץ Excel / CSV ----------
+// קובצי CSV בעברית נשמרים לפעמים ב-UTF-8 ולפעמים ב-Windows-1255 (ברירת המחדל של Excel) – מזהים אוטומטית
+export async function readWorkbook(file) {
+  const buf = await file.arrayBuffer();
+  if (/\.csv$/i.test(file.name)) {
+    let text;
+    try { text = new TextDecoder("utf-8", { fatal: true }).decode(buf); }
+    catch { text = new TextDecoder("windows-1255").decode(buf); }
+    return XLSX.read(text.replace(/^\uFEFF/, ""), { type: "string", raw: true });
+  }
+  return XLSX.read(buf, { type: "array", cellDates: true });
 }

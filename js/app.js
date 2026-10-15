@@ -1,19 +1,31 @@
 // ===== מערכת ניהול קשרים – מכון משפטי ארץ =====
 import {
   collection, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot,
-  serverTimestamp, writeBatch, Timestamp
+  serverTimestamp, writeBatch, Timestamp, query, where, orderBy, limit, getDocs
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   db, auth, configReady, esc, normEmail, normPhone, toDate, fmtDate, toast, setupMissingNotice,
-  DEFAULT_TAXONOMY, normTaxonomy, autoTagsFor
-} from "./common.js?v=20261015c";
+  DEFAULT_TAXONOMY, normTaxonomy, autoTagsFor, readWorkbook
+} from "./common.js?v=20261020";
+import { renderCourses, renderCalendar, courseSummary } from "./courses.js?v=20261020";
+import { renderResearch, researchSummary } from "./research.js?v=20261020";
+import { composeMail, preloadMail, mailConfigured, mailFrom, mailConnected } from "./mail.js?v=20261020";
 
 // ---------- קבועים ----------
-const STAFF_ROLES = ["admin", "head", "rabbi", "staff"];
-const ROLE_LABEL = { staff: "צוות", rabbi: "רב משיב", head: "רכז הרכזים", admin: "מנהל מערכת" };
+const ROLE_LABEL = {
+  staff: "צוות", rabbi: "רב משיב", head: "רכז הרכזים", admin: "מנהל מערכת",
+  course_manager: "רכז השתלמות", researcher: "חוקר", research_coord: "רכז מחקר"
+};
+const STAFF_ROLES = Object.keys(ROLE_LABEL);
+// קבוצות הרשאה
+const CRM_ROLES = ["admin", "head", "staff", "rabbi"];
+const EDIT_ROLES = ["admin", "head", "staff"];
+const COURSE_ROLES = ["admin", "head", "staff", "course_manager"];
+const RESEARCH_ROLES = ["admin", "head", "research_coord", "researcher"];
+const MAIL_ROLES = ["admin", "head", "staff", "rabbi", "course_manager"];
 const ACT_TYPES = {
   donation: "תרומה",
   course: "השתלמות",
@@ -36,12 +48,19 @@ const S = {
   cf: { text: "", tag: "", consent: "", conds: [] },
   qf: { status: "new", rabbi: "", text: "", topic: "", tag: "" },
   tax: normTaxonomy(DEFAULT_TAXONOMY), taxLoaded: false,
+  // השתלמויות
+  courses: new Map(), sessions: new Map(), regs: new Map(), resources: { zoomAccounts: ["חשבון הזום של המכון"] },
+  // מחקר
+  projects: new Map(), tasks: new Map(), reports: new Map(), hours: new Map(),
+  // מיילים מתוזמנים
+  mailQueue: new Map(), scheduler: null,
   unsub: []
 };
 const $ = (id) => document.getElementById(id);
 const role = () => S.profile?.role || "none";
 const myEmail = () => normEmail(S.user?.email);
 const can = (...roles) => roles.includes(role());
+const inGroup = (group) => group.includes(role());
 
 // ---------- כניסה ----------
 if (!configReady) {
@@ -49,6 +68,11 @@ if (!configReady) {
 } else {
   initAuthUI();
   onAuthStateChanged(auth, handleAuth);
+  // ניווט עם כפתור "אחורה" בדפדפן ושינוי כתובת
+  window.addEventListener("hashchange", () => {
+    const v = location.hash.slice(1);
+    if (S.profile && v && v !== S.view) go(v);
+  });
 }
 
 function initAuthUI() {
@@ -82,8 +106,8 @@ async function handleAuth(u) {
   try { snap = await getDoc(doc(db, "allowedEmails", myEmail())); }
   catch (e) { snap = null; reason = e.code === "permission-denied" ? "חוקי האבטחה ב-Firebase חוסמים את הבדיקה – צריך לפרסם את firestore.rules העדכני (Firestore ← Rules ← Publish)." : "שגיאה: " + e.code; }
   S.profile = snap?.exists() ? snap.data() : null;
-  if (snap && !snap.exists()) reason = `לא נמצא מסמך בשם "${myEmail()}" באוסף allowedEmails.`;
-  else if (S.profile && !STAFF_ROLES.includes(S.profile.role)) reason = `בשדה role רשום "${S.profile.role}". הערך צריך להיות admin, head, staff או rabbi.`;
+  if (snap && !snap.exists()) reason = "";
+  else if (S.profile && !STAFF_ROLES.includes(S.profile.role)) reason = `בשדה role רשום "${S.profile.role}". הערך צריך להיות אחד מ: ${STAFF_ROLES.join(", ")}.`;
   if (!S.profile || !STAFF_ROLES.includes(S.profile.role)) {
     $("deniedEmail").textContent = u.email;
     $("deniedReason").textContent = reason;
@@ -101,49 +125,83 @@ async function handleAuth(u) {
   if (role() === "rabbi") S.qf.rabbi = "mine";
   setupNav();
   subscribeAll();
-  go(location.hash.slice(1) || "dashboard");
+  preloadMail();
+  go(location.hash.slice(1) || defaultView());
 }
 
 // ---------- נתונים ----------
 function subscribeAll() {
+  const fail = (name) => (err) => toast("שגיאה בטעינת " + name + ": " + err.code, "bad");
+  const subQ = (name, q, onDocs) => S.unsub.push(onSnapshot(q, (snap) => onDocs(snap), fail(name)));
+  const sub = (name, onDocs) => subQ(name, collection(db, name), onDocs);
+  const intoMap = (map) => (snap) => { map.clear(); snap.forEach((d) => map.set(d.id, { id: d.id, ...d.data() })); dataChanged(); };
+
   S.unsub.push(onSnapshot(doc(db, "settings", "taxonomy"), (snap) => {
     S.tax = normTaxonomy(snap.exists() ? snap.data() : DEFAULT_TAXONOMY); S.taxLoaded = true; dataChanged();
   }, () => { S.taxLoaded = true; }));
-  const sub = (name, onDocs) => S.unsub.push(onSnapshot(collection(db, name), (snap) => onDocs(snap), (err) => toast("שגיאה בטעינת " + name + ": " + err.code, "bad")));
-  sub("contacts", (snap) => {
-    S.contacts.clear(); S.byEmail.clear(); S.byPhone.clear();
-    snap.forEach((d) => {
-      const c = { id: d.id, ...d.data() };
-      S.contacts.set(d.id, c);
-      if (c.emailKey) S.byEmail.set(c.emailKey, d.id);
-      if (c.phoneKey) S.byPhone.set(c.phoneKey, d.id);
-    });
-    S.loaded.contacts = true; dataChanged();
-  });
-  sub("activities", (snap) => {
-    S.activities.clear(); S.actByContact.clear();
-    snap.forEach((d) => {
-      const a = { id: d.id, ...d.data() };
-      S.activities.set(d.id, a);
-      if (!S.actByContact.has(a.contactId)) S.actByContact.set(a.contactId, []);
-      S.actByContact.get(a.contactId).push(a);
-    });
-    S.loaded.activities = true; dataChanged();
-  });
-  sub("questions", (snap) => {
-    S.questions.clear(); S.qByContact.clear();
-    snap.forEach((d) => {
-      const q = { id: d.id, ...d.data() };
-      S.questions.set(d.id, q);
-      if (q.contactId) {
-        if (!S.qByContact.has(q.contactId)) S.qByContact.set(q.contactId, []);
-        S.qByContact.get(q.contactId).push(q);
-      }
-    });
-    S.loaded.questions = true; dataChanged();
-  });
+  S.unsub.push(onSnapshot(doc(db, "settings", "resources"), (snap) => {
+    const z = snap.exists() ? (snap.data().zoomAccounts || []).filter(Boolean) : [];
+    S.resources = { zoomAccounts: z.length ? z : ["חשבון הזום של המכון"] }; dataChanged();
+  }, () => {}));
   sub("allowedEmails", (snap) => { S.users.clear(); snap.forEach((d) => S.users.set(d.id, { id: d.id, email: d.id, ...d.data() })); dataChanged(); });
-  sub("savedLists", (snap) => { S.lists.clear(); snap.forEach((d) => S.lists.set(d.id, { id: d.id, ...d.data() })); dataChanged(); });
+  if (inGroup(MAIL_ROLES)) {
+    const mq = can("admin", "head") ? collection(db, "mailQueue") : query(collection(db, "mailQueue"), where("createdBy", "==", myEmail()));
+    subQ("mailQueue", mq, intoMap(S.mailQueue));
+    S.unsub.push(onSnapshot(doc(db, "settings", "mailScheduler"), (snap) => { S.scheduler = snap.exists() ? snap.data() : null; dataChanged(); }, () => {}));
+  }
+
+  if (inGroup(CRM_ROLES)) {
+    sub("contacts", (snap) => {
+      S.contacts.clear(); S.byEmail.clear(); S.byPhone.clear();
+      snap.forEach((d) => {
+        const c = { id: d.id, ...d.data() };
+        S.contacts.set(d.id, c);
+        if (c.emailKey) S.byEmail.set(c.emailKey, d.id);
+        if (c.phoneKey) S.byPhone.set(c.phoneKey, d.id);
+      });
+      S.loaded.contacts = true; dataChanged();
+    });
+    sub("activities", (snap) => {
+      S.activities.clear(); S.actByContact.clear();
+      snap.forEach((d) => {
+        const a = { id: d.id, ...d.data() };
+        S.activities.set(d.id, a);
+        if (!S.actByContact.has(a.contactId)) S.actByContact.set(a.contactId, []);
+        S.actByContact.get(a.contactId).push(a);
+      });
+      S.loaded.activities = true; dataChanged();
+    });
+    sub("questions", (snap) => {
+      S.questions.clear(); S.qByContact.clear();
+      snap.forEach((d) => {
+        const q = { id: d.id, ...d.data() };
+        S.questions.set(d.id, q);
+        if (q.contactId) {
+          if (!S.qByContact.has(q.contactId)) S.qByContact.set(q.contactId, []);
+          S.qByContact.get(q.contactId).push(q);
+        }
+      });
+      S.loaded.questions = true; dataChanged();
+    });
+    sub("savedLists", intoMap(S.lists));
+  }
+
+  if (inGroup(COURSE_ROLES)) {
+    sub("courses", intoMap(S.courses));
+    sub("sessions", intoMap(S.sessions));
+    // רכז השתלמות רואה רק את הנרשמים להשתלמויות שהוא מנהל
+    const regsQ = inGroup(EDIT_ROLES) ? collection(db, "registrations")
+      : query(collection(db, "registrations"), where("managerEmails", "array-contains", myEmail()));
+    subQ("registrations", regsQ, (snap) => { S.regs.clear(); snap.forEach((d) => S.regs.set(d.id, { id: d.id, ...d.data() })); S.loaded.regs = true; dataChanged(); });
+  }
+
+  if (inGroup(RESEARCH_ROLES)) {
+    // חוקר מקבל רק את הרשומות שלו
+    const mine = (name) => role() === "researcher" ? query(collection(db, name), where("researcherEmail", "==", myEmail())) : collection(db, name);
+    for (const [name, map] of [["projects", S.projects], ["tasks", S.tasks], ["reports", S.reports], ["hours", S.hours]]) {
+      subQ(name, mine(name), intoMap(map));
+    }
+  }
 }
 
 let dataTimer = null;
@@ -151,6 +209,7 @@ function dataChanged() {
   clearTimeout(dataTimer);
   dataTimer = setTimeout(() => {
     if (S.loaded.contacts && S.loaded.questions) linkPendingQuestions();
+    if (S.loaded.contacts && S.loaded.regs && inGroup(EDIT_ROLES)) linkRegistrations();
     refreshView();
   }, 120);
 }
@@ -175,6 +234,27 @@ async function linkPendingQuestions() {
       });
       await updateDoc(doc(db, "questions", q.id), { contactId });
     } catch (e) { console.warn("link failed", e); }
+  }
+}
+
+// כל נרשם להשתלמות נכנס ל-CRM: כרטיס איש קשר + רשומת "השתלמות" בהיסטוריה
+async function linkRegistrations() {
+  for (const r of S.regs.values()) {
+    if (r.contactId || S.linking.has("r:" + r.id)) continue;
+    S.linking.add("r:" + r.id);
+    try {
+      const course = S.courses.get(r.courseId);
+      const contactId = await findOrCreateContact({
+        firstName: r.firstName, lastName: r.lastName, email: r.email, phone: r.phone, city: r.city,
+        consentEmail: r.consentEmail, source: "הרשמה להשתלמות"
+      });
+      await addDoc(collection(db, "activities"), {
+        contactId, type: "course", details: course?.title || "השתלמות", amount: null,
+        date: r.createdAt || Timestamp.now(), source: "הרשמה באתר", courseId: r.courseId,
+        createdBy: S.user.uid, createdAt: serverTimestamp()
+      });
+      await updateDoc(doc(db, "registrations", r.id), { contactId });
+    } catch (e) { console.warn("reg link failed", e); }
   }
 }
 
@@ -224,9 +304,14 @@ function setupNav() {
     b.onclick = () => go(b.dataset.view);
   });
 }
+function defaultView() {
+  if (role() === "researcher" || role() === "research_coord") return "research";
+  if (role() === "course_manager") return "courses";
+  return "dashboard";
+}
 function go(view) {
   const btn = document.querySelector(`#nav button[data-view="${view}"]`);
-  if (!btn || btn.classList.contains("hidden")) view = "dashboard";
+  if (!btn || btn.classList.contains("hidden")) view = defaultView();
   S.view = view;
   location.hash = view;
   document.querySelectorAll("#nav button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
@@ -235,7 +320,11 @@ function go(view) {
 function refreshView() { renderView(false); }
 
 function renderView(full) {
-  const views = { dashboard: renderDashboard, contacts: renderContacts, questions: renderQuestions, import: renderImport, users: renderUsers, settings: renderSettings };
+  const views = {
+    dashboard: renderDashboard, contacts: renderContacts, questions: renderQuestions, import: renderImport,
+    users: renderUsers, settings: renderSettings, mail: renderMail,
+    courses: (f) => renderCourses(ctx(), f), calendar: (f) => renderCalendar(ctx(), f), research: (f) => renderResearch(ctx(), f)
+  };
   (views[S.view] || renderDashboard)(full);
 }
 
@@ -303,28 +392,40 @@ function exportXlsx(rows, filename) {
   XLSX.writeFile(wb, filename);
 }
 
+// הקשר משותף למודולים (השתלמויות, מחקר)
+function ctx() {
+  return { S, $, esc, toast, openModal, closeModal, exportXlsx, can, inGroup, role, myEmail, userName, fmtDate, toDate,
+    refresh: () => renderView(true), COURSE_ROLES, RESEARCH_ROLES, EDIT_ROLES };
+}
+
 const sortByDateDesc = (arr, key) => arr.sort((a, b) => (toDate(b[key])?.getTime() || 0) - (toDate(a[key])?.getTime() || 0));
 
 // ======================================================
 // ראשי
 // ======================================================
 function renderDashboard() {
+  const parts = [];
+  if (inGroup(CRM_ROLES)) parts.push(crmDashboard());
+  if (inGroup(COURSE_ROLES)) parts.push(courseSummary(ctx()));
+  if (inGroup(RESEARCH_ROLES) && role() !== "researcher") parts.push(researchSummary(ctx()));
+  $("main").innerHTML = `<h1>שלום ${esc(S.profile.name || "")}</h1>` + parts.join("");
+  bindQCards();
+  document.querySelectorAll("[data-go]").forEach((b) => (b.onclick = () => go(b.dataset.go)));
+}
+
+function crmDashboard() {
   const qs = [...S.questions.values()];
   const monthAgo = Date.now() - 30 * 864e5;
   const cnt = (st) => qs.filter((q) => q.status === st).length;
   const answered30 = qs.filter((q) => q.status === "answered" && (toDate(q.answeredAt)?.getTime() || 0) > monthAgo).length;
   const consentYes = [...S.contacts.values()].filter((c) => consentOf(c) === "yes").length;
-
   const perRabbi = rabbis().map((r) => {
     const mine = qs.filter((q) => q.rabbiEmail === r.id);
     return `<tr><td>${esc(userName(r.id))}</td><td>${mine.filter((q) => q.status === "new").length}</td><td>${mine.filter((q) => q.status === "in_progress").length}</td><td>${mine.filter((q) => q.status === "answered").length}</td></tr>`;
   }).join("");
   const unassigned = qs.filter((q) => !q.rabbiEmail && q.status !== "answered").length;
-
   const latest = sortByDateDesc(qs.filter((q) => q.status !== "answered"), "createdAt").slice(0, 6);
-
-  $("main").innerHTML = `
-    <h1>שלום ${esc(S.profile.name || "")}</h1>
+  return `
     <div class="stats">
       <div class="stat"><div class="num">${S.contacts.size}</div><div class="lbl">אנשי קשר</div></div>
       <div class="stat"><div class="num">${consentYes}</div><div class="lbl">אישרו דיוור במייל</div></div>
@@ -346,7 +447,6 @@ function renderDashboard() {
         <p class="small muted">שאלות פתוחות שלא שויכו לרב: ${unassigned}</p>
       </div>
     </div>`;
-  bindQCards();
 }
 
 // ======================================================
@@ -383,6 +483,7 @@ function renderContacts(full) {
     <div class="row space" style="margin-bottom:8px">
       <span id="contactsCount" class="muted"></span>
       <div class="row">
+        <button id="btnMailList">מייל לרשימה</button>
         <button id="btnCopyEmails">העתקת מיילים (רק מאשרי דיוור)</button>
         <button id="btnExportContacts">ייצוא ל-Excel</button>
       </div>
@@ -395,6 +496,7 @@ function renderContacts(full) {
   $("btnAddCond").onclick = () => { S.cf.conds.push({ has: true, type: "donation", text: "" }); renderConds(); renderContactsTable(); };
   $("btnExportContacts").onclick = exportContacts;
   $("btnCopyEmails").onclick = copyEmails;
+  $("btnMailList").onclick = () => mailContacts(filteredContacts(), "מייל לרשימה");
   $("btnSaveList").onclick = saveList;
   $("btnDelList").onclick = deleteList;
   $("listSelect").onchange = (e) => loadList(e.target.value);
@@ -495,6 +597,20 @@ function exportContacts() {
   exportXlsx(rows, "אנשי-קשר.xlsx");
 }
 
+// מייל לאנשי קשר – מי שביקש הסרה לא מקבל לעולם
+function mailContacts(list, title) {
+  const removed = list.filter((x) => consentOf(x) === "removed").length;
+  const rec = list.filter((x) => x.email && consentOf(x) !== "removed").map((x) => ({
+    email: x.email, name: fullName(x), firstName: x.firstName, contactId: x.id, consent: consentOf(x) === "yes", vars: { "יישוב": x.city || "" }
+  }));
+  if (!rec.length) return toast(removed ? "כל אנשי הקשר ברשימה ביקשו הסרה מדיוור" : "אין ברשימה כתובות מייל", "bad");
+  composeMail(ctx(), {
+    title, kind: "crm", recipients: rec,
+    warning: removed ? `${removed} אנשי קשר שביקשו הסרה מדיוור הוצאו מהרשימה.` : "",
+    subject: "", body: "שלום {שם פרטי},\n\n\n\nבברכה,\nמכון משפטי ארץ"
+  });
+}
+
 async function copyEmails() {
   const list = filteredContacts();
   const ok = list.filter((c) => consentOf(c) === "yes" && c.email);
@@ -553,6 +669,7 @@ function openContact(id) {
         ${id ? `<p class="small muted">מקור: ${esc(c.source || "—")} · נוצר ${fmtDate(c.createdAt)}</p>` : ""}
         ${ro ? "" : `<div class="row space">
           <button class="primary" id="cSave">שמירה</button>
+          ${id && c.email ? '<button id="cMail">שליחת מייל</button>' : ""}
           ${id && can("admin") ? '<button class="danger" id="cDelete">מחיקת איש קשר</button>' : ""}
         </div>`}
       </div>
@@ -570,6 +687,7 @@ function openContact(id) {
     </div>`, () => {
     if (id) renderTimeline(id);
     if ($("cSave")) $("cSave").onclick = () => saveContact(id);
+    if ($("cMail")) $("cMail").onclick = () => mailContacts([c], "שליחת מייל ל" + fullName(c));
     if ($("cDelete")) $("cDelete").onclick = () => deleteContact(id);
     if ($("aAdd")) $("aAdd").onclick = async () => {
       const amount = $("aAmount").value ? Number($("aAmount").value) : null;
@@ -843,7 +961,8 @@ function openQuestion(id) {
         <div class="row">
           <button class="primary" id="qSave">שמירה</button>
           <button id="qCopy">העתקת התשובה</button>
-          ${q.email ? `<a class="btn" id="qMail" href="#">פתיחה במייל</a>` : ""}
+          ${q.email ? `<button id="qMail">שמירה ושליחת התשובה במייל</button>` : ""}
+          ${q.answerSentAt ? `<span class="small muted">התשובה נשלחה ${fmtDate(q.answerSentAt)}</span>` : ""}
         </div>
       </div>
       <div>
@@ -860,10 +979,21 @@ function openQuestion(id) {
     </div>`, (root) => {
     $("qSave").onclick = () => saveQuestion(id);
     $("qCopy").onclick = async () => { await navigator.clipboard.writeText($("qAnswer").value); toast("התשובה הועתקה", "good"); };
-    if ($("qMail")) $("qMail").onclick = (e) => {
-      e.preventDefault();
-      const body = `שלום ${q.firstName || ""},\n\nבתשובה לשאלתך:\n${q.text}\n\n${$("qAnswer").value}\n\nבברכה,\nמכון משפטי ארץ`;
-      location.href = `mailto:${encodeURIComponent(q.email)}?subject=${encodeURIComponent("תשובה לשאלתך – מכון משפטי ארץ")}&body=${encodeURIComponent(body)}`;
+    if ($("qMail")) $("qMail").onclick = async () => {
+      const answer = $("qAnswer").value.trim();
+      if (!answer) return toast("נא לכתוב תשובה לפני השליחה", "bad");
+      $("qStatusSel").value = "answered";
+      const rabbi = userName($("qRabbiSel").value || (can("rabbi") ? myEmail() : ""));
+      if (!(await saveQuestion(id))) return;
+      const cur = S.questions.get(id) || q;
+      composeMail(ctx(), {
+        title: "שליחת התשובה לשואל", kind: "qa-answer",
+        warning: cur.consentEmail === false ? "השואל לא אישר קבלת דיוור בטופס (וקיבל הודעה שבלי אישור לא יקבל תשובה במייל)." : "",
+        recipients: [{ email: cur.email, name: [cur.firstName, cur.lastName].filter(Boolean).join(" "), firstName: cur.firstName, contactId: cur.contactId, ref: id, consent: cur.consentEmail }],
+        subject: "תשובה לשאלתך – מכון משפטי ארץ",
+        body: `שלום {שם פרטי},\n\nבתשובה לשאלתך:\n«${cur.text}»\n\n${answer}\n\nבברכה,${rabbi ? "\n" + rabbi : ""}\nמכון משפטי ארץ`,
+        mark: { collection: "questions", field: "answerSentAt" }
+      });
     };
     if ($("qOpenContact")) $("qOpenContact").onclick = () => openContact(q.contactId);
     root.querySelectorAll("[data-prevq]").forEach((b) => (b.onclick = () => openQuestion(b.dataset.prevq)));
@@ -874,14 +1004,15 @@ function openQuestion(id) {
   });
 }
 
+// מחזירה true אם נשמר
 async function saveQuestion(id) {
   const q = S.questions.get(id);
   const status = $("qStatusSel").value;
   const answer = $("qAnswer").value.trim();
   const publish = $("qPublish").checked;
   const publicText = $("qPublicText").value.trim();
-  if (status === "answered" && !answer) return toast("כדי לסמן 'נענתה' צריך לכתוב תשובה", "bad");
-  if (publish && (!answer || status !== "answered")) return toast("אפשר לפרסם רק שאלה שנענתה", "bad");
+  if (status === "answered" && !answer) { toast("כדי לסמן 'נענתה' צריך לכתוב תשובה", "bad"); return false; }
+  if (publish && (!answer || status !== "answered")) { toast("אפשר לפרסם רק שאלה שנענתה", "bad"); return false; }
   // רב שעונה על שאלה שלא שויכה – משויך אליה אוטומטית
   const rabbiEmail = $("qRabbiSel").value || (status !== "new" && can("rabbi") ? myEmail() : "");
   const tags = [...new Set($("qTagsIn").value.split(",").map((t) => t.trim()).filter(Boolean))];
@@ -897,7 +1028,8 @@ async function saveQuestion(id) {
       await deleteDoc(doc(db, "publicQA", id));
     }
     toast("נשמר", "good"); closeModal();
-  } catch (e) { toast("השמירה נכשלה: " + e.code, "bad"); }
+    return true;
+  } catch (e) { toast("השמירה נכשלה: " + e.code, "bad"); return false; }
 }
 
 function openManualQuestion() {
@@ -968,7 +1100,7 @@ function renderImport(full) {
 
 async function readImportFile(e) {
   const file = e.target.files[0]; if (!file) return;
-  const wb = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
+  const wb = await readWorkbook(file);
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
   if (!rows.length) return toast("הקובץ ריק", "bad");
@@ -1117,7 +1249,7 @@ function renderSettings(full) {
   if (!full && $("setCats")) return; // לא לדרוס עריכה פתוחה
   SET = JSON.parse(JSON.stringify(S.tax));
   $("main").innerHTML = `
-    <h1>הגדרות שו"ת</h1>
+    <h1>הגדרות</h1>
     <div class="split">
       <div class="card">
         <h2>קטגוריות</h2>
@@ -1136,7 +1268,31 @@ function renderSettings(full) {
       <button class="primary" id="saveSet">שמירת ההגדרות</button>
       <button id="retagAll">החלת תגיות אוטומטיות על כל השאלות הקיימות</button>
       <span id="retagMsg" class="muted small"></span>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h2>שליחת מיילים</h2>
+      ${mailConfigured() ? `<p>המערכת שולחת מהכתובת <b dir="ltr">${esc(mailFrom())}</b>. ${mailConnected() ? '<span class="badge good">מחובר עכשיו</span>' : ""}</p>
+        <p class="small muted">כדי לשלוח צריך להתחבר בחלון של Google עם החשבון הזה (פעם בשעה בערך).</p>
+        <button id="mailTest">שליחת מייל ניסיון לעצמי</button>`
+      : `<p class="muted">עוד לא הוגדר. ההוראות בקובץ README.md, בפרק "שליחת מיילים".</p>`}
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h2>חשבונות זום (להתראות התנגשות)</h2>
+      <p class="small muted">חשבון בכל שורה. אם שני מפגשים חופפים משתמשים באותו חשבון, לוח השנה יתריע.</p>
+      <textarea id="zoomAccounts" style="min-height:90px">${esc(S.resources.zoomAccounts.join("\n"))}</textarea>
+      <button id="saveZoom" style="margin-top:8px">שמירת חשבונות</button>
     </div>`;
+  if ($("mailTest")) $("mailTest").onclick = () => composeMail(ctx(), {
+    title: "מייל ניסיון", kind: "test",
+    recipients: [{ email: myEmail(), name: S.profile.name || "", firstName: (S.profile.name || "").split(" ")[0] }],
+    subject: "בדיקת שליחה ממערכת משפטי ארץ", body: "שלום {שם פרטי},\n\nזה מייל ניסיון. אם קיבלת אותו – השליחה מהמערכת עובדת.\n\nמכון משפטי ארץ"
+  });
+  $("saveZoom").onclick = async () => {
+    const list = [...new Set($("zoomAccounts").value.split("\n").map((x) => x.trim()).filter(Boolean))];
+    if (!list.length) return toast("צריך לפחות חשבון אחד", "bad");
+    try { await setDoc(doc(db, "settings", "resources"), { zoomAccounts: list, updatedAt: serverTimestamp() }); toast("נשמר", "good"); }
+    catch (e) { toast("השמירה נכשלה: " + e.code, "bad"); }
+  };
   drawSettingsLists();
   $("addCat").onclick = () => { SET.categories.push(""); drawSettingsLists(); };
   $("addTag").onclick = () => { SET.tags.push({ name: "", keywords: [] }); drawSettingsLists(); };
@@ -1213,4 +1369,73 @@ async function retagAll() {
     toast("התגיות עודכנו", "good");
   } catch (e) { toast("העדכון נכשל: " + e.code, "bad"); }
   $("retagAll").disabled = false;
+}
+
+
+// ======================================================
+// מיילים מתוזמנים ויומן שליחות
+// ======================================================
+const JOB_STATUS = { scheduled: "מתוזמן", sending: "בשליחה", sent: "נשלח", partial: "נשלח חלקית", failed: "נכשל", cancelled: "בוטל" };
+const JOB_BADGE = { scheduled: "info", sending: "warn", sent: "good", partial: "warn", failed: "bad", cancelled: "" };
+let mailLogCache = null;
+
+function renderMail(full) {
+  const jobs = [...S.mailQueue.values()].sort((a, b) => (toDate(b.sendAt)?.getTime() || 0) - (toDate(a.sendAt)?.getTime() || 0));
+  const lastRun = toDate(S.scheduler?.lastRun);
+  const alive = lastRun && Date.now() - lastRun.getTime() < 20 * 60000;
+  const upcoming = jobs.filter((j) => j.status === "scheduled");
+  $("main").innerHTML = `
+    <h1>מיילים</h1>
+    <div class="card">
+      ${alive ? `<span class="badge good">המתזמן פעיל</span> <span class="small muted">בדיקה אחרונה: ${lastRun.toLocaleString("he-IL")}</span>`
+        : `<div class="conflict-box"><b>המתזמן לא פעיל.</b> מיילים מתוזמנים לא יישלחו עד שיוגדר הסקריפט בחשבון ה-Gmail של המכון (README, פרק "מיילים מתוזמנים").
+          ${lastRun ? `<div class="small">בדיקה אחרונה: ${lastRun.toLocaleString("he-IL")}</div>` : ""}</div>`}
+      ${S.scheduler?.lastError ? `<div class="small" style="color:var(--bad)">שגיאה אחרונה של המתזמן: ${esc(S.scheduler.lastError)}</div>` : ""}
+      <p class="small muted" style="margin-bottom:0">מתזמנים מייל מכל חלון שליחה (שו"ת, השתלמויות, אנשי קשר) – בבחירה "לתזמן ל:". ${can("admin", "head") ? "כאן מוצגים כל המיילים המתוזמנים." : "כאן מוצגים המיילים שאת/ה תזמנת."}</p>
+    </div>
+    <h2>מתוזמנים ${upcoming.length ? `(${upcoming.length})` : ""}</h2>
+    <div class="card" style="padding:0"><div class="table-wrap"><table>
+      <thead><tr><th>מועד</th><th>נושא</th><th>נמענים</th><th>סטטוס</th><th>נוצר על ידי</th><th></th></tr></thead>
+      <tbody>${jobs.map((j) => `<tr>
+        <td class="nowrap">${toDate(j.sendAt)?.toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" }) || ""}</td>
+        <td>${esc(j.subject)}${j.title ? `<div class="small muted">${esc(j.title)}</div>` : ""}</td>
+        <td>${j.total || (j.recipients || []).length}${(j.recipients || []).length === 1 ? `<div class="small muted">${esc(j.recipients[0].email)}</div>` : ""}</td>
+        <td><span class="badge ${JOB_BADGE[j.status] || ""}">${JOB_STATUS[j.status] || j.status}</span>
+          ${["sent", "partial", "sending"].includes(j.status) ? `<div class="small muted">${(j.sentEmails || []).length - (j.failed || []).length}/${j.total}</div>` : ""}
+          ${(j.failed || []).length ? `<details><summary class="small">${j.failed.length} נכשלו</summary><div class="small">${j.failed.map(esc).join("<br>")}</div></details>` : ""}</td>
+        <td class="small">${esc(userName(j.createdBy))}</td>
+        <td>${j.status === "scheduled" ? `<button class="link" data-viewjob="${j.id}">תצוגה</button> <button class="link danger" data-canceljob="${j.id}">ביטול</button>` : `<button class="link" data-viewjob="${j.id}">תצוגה</button>`}</td></tr>`).join("")
+        || '<tr><td colspan="6" class="muted">אין מיילים מתוזמנים</td></tr>'}</tbody></table></div></div>
+    ${can("admin", "head") ? `<h2>יומן שליחות</h2><div class="card" style="padding:0" id="mailLogBox"><p class="muted" style="padding:12px">טוען...</p></div>` : ""}`;
+  document.querySelectorAll("[data-canceljob]").forEach((b) => (b.onclick = async () => {
+    if (!confirm("לבטל את המייל המתוזמן?")) return;
+    try { await updateDoc(doc(db, "mailQueue", b.dataset.canceljob), { status: "cancelled", cancelledAt: serverTimestamp(), cancelledBy: myEmail() }); toast("בוטל"); }
+    catch (e) { toast("הביטול נכשל (ייתכן שהשליחה כבר התחילה): " + e.code, "bad"); }
+  }));
+  document.querySelectorAll("[data-viewjob]").forEach((b) => (b.onclick = () => {
+    const j = S.mailQueue.get(b.dataset.viewjob);
+    const r0 = (j.recipients || [])[0] || {};
+    const fillOne = (t) => String(t).replace(/\{([^{}]+)\}/g, (m, k) => ({ "שם": r0.name, "שם פרטי": r0.firstName || (r0.name || "").split(" ")[0], ...(r0.vars || {}) })[k] ?? m);
+    openModal(`<div class="head"><h2>${esc(j.subject)}</h2><button class="close" data-close aria-label="סגירה">×</button></div>
+      <p class="small muted">${toDate(j.sendAt)?.toLocaleString("he-IL") || ""} · ${j.total} נמענים · דוגמה עבור ${esc(r0.name || r0.email || "")}</p>
+      <div class="card pre" style="background:var(--surface-2)">${esc(fillOne(j.body))}</div>
+      <details><summary class="small">כל הנמענים</summary><div class="small muted">${(j.recipients || []).map((r) => esc(r.name ? `${r.name} <${r.email}>` : r.email)).join(" · ")}</div></details>`);
+  }));
+  if (can("admin", "head") && (full || !mailLogCache)) loadMailLog();
+  else if (mailLogCache) drawMailLog();
+}
+
+async function loadMailLog() {
+  try {
+    const snap = await getDocs(query(collection(db, "mailLog"), orderBy("at", "desc"), limit(100)));
+    mailLogCache = snap.docs.map((d) => d.data());
+  } catch (e) { mailLogCache = []; }
+  drawMailLog();
+}
+function drawMailLog() {
+  const box = $("mailLogBox"); if (!box) return;
+  box.innerHTML = `<div class="table-wrap"><table><thead><tr><th>נשלח</th><th>אל</th><th>נושא</th><th>על ידי</th></tr></thead><tbody>
+    ${mailLogCache.map((m) => `<tr><td class="nowrap">${toDate(m.at)?.toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" }) || ""}</td><td dir="ltr" style="text-align:right">${esc(m.to)}</td><td>${esc(m.subject)}</td><td class="small">${esc(userName(m.by))}${m.scheduled ? " · מתוזמן" : ""}</td></tr>`).join("")
+    || '<tr><td colspan="4" class="muted">עדיין לא נשלחו מיילים</td></tr>'}</tbody></table></div>
+    <p class="small muted" style="padding:0 12px">100 המיילים האחרונים.</p>`;
 }

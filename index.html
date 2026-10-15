@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ניהול קשרים – מכון משפטי ארץ</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700&family=Rubik:wght@400;500;700;800;900&family=Frank+Ruhl+Libre:wght@400;500;700&family=Assistant:wght@400;600;700&display=swap" rel="stylesheet">
   <link rel="icon" type="image/png" href="img/favicon.png">
   <meta name="theme-color" content="#c19937">
-  <link rel="stylesheet" href="css/style.css?v=20261015c">
+  <link rel="stylesheet" href="css/style.css?v=20261020">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
@@ -29,10 +29,11 @@
   <!-- חשבון לא מורשה -->
   <section id="pendingView" class="hidden">
     <div class="card narrow">
-      <h2>אין הרשאת גישה</h2>
-      <p>החשבון <b id="deniedEmail"></b> לא נמצא ברשימת המשתמשים המורשים.</p>
+      <h2>זו כניסת צוות</h2>
+      <p>החשבון <b id="deniedEmail"></b> לא נמצא ברשימת אנשי הצוות.</p>
+      <p><b>נרשמת להשתלמות?</b> <a href="my.html">לאזור האישי של המשתלמים</a></p>
       <p class="small" id="deniedReason" style="color:var(--bad)"></p>
-      <p class="muted">אם אתה אמור לקבל גישה, בקש ממנהל המערכת להוסיף את הכתובת הזו. אם נכנסת בטעות עם חשבון אחר, צא ונסה שוב.</p>
+      <p class="muted">אם אתה איש צוות, בקש ממנהל המערכת להוסיף את הכתובת. אם נכנסת בטעות עם חשבון אחר, צא ונסה שוב.</p>
       <button id="btnLogoutPending">יציאה והחלפת חשבון</button>
     </div>
   </section>
@@ -42,9 +43,13 @@
     <header class="topbar">
       <picture><source srcset="img/logo-light.png" media="(prefers-color-scheme: dark)"><img src="img/logo.png" class="logo-img" width="140" height="48" alt="מכון משפטי ארץ"></picture>
       <nav id="nav">
-        <button data-view="dashboard">ראשי</button>
-        <button data-view="contacts">אנשי קשר</button>
-        <button data-view="questions">שו"ת</button>
+        <button data-view="dashboard" data-roles="admin,head,staff,rabbi,course_manager,research_coord">ראשי</button>
+        <button data-view="contacts" data-roles="admin,head,staff,rabbi">אנשי קשר</button>
+        <button data-view="questions" data-roles="admin,head,staff,rabbi">שו"ת</button>
+        <button data-view="courses" data-roles="admin,head,staff,course_manager">השתלמויות</button>
+        <button data-view="calendar" data-roles="admin,head,staff,course_manager">לוח שנה</button>
+        <button data-view="research" data-roles="admin,head,research_coord,researcher">מחקר</button>
+        <button data-view="mail" data-roles="admin,head,staff,rabbi,course_manager">מיילים</button>
         <button data-view="import" data-roles="admin,head,staff">ייבוא</button>
         <button data-view="users" data-roles="admin">משתמשים</button>
         <button data-view="settings" data-roles="admin,head">הגדרות</button>
@@ -57,10 +62,10 @@
   <div id="setupView"></div>
   <div id="modalRoot"></div>
   <footer class="site-footer">
-    <a href="ask.html">שאל את הרב</a> · <a href="shut.html">מאגר שו"ת</a> · <a href="accessibility.html">הצהרת נגישות</a> · <a href="privacy.html">מדיניות פרטיות</a>
+    <a href="ask.html">שאל את הרב</a> · <a href="shut.html">מאגר שו"ת</a> · <a href="my.html">האזור האישי</a> · <a href="accessibility.html">הצהרת נגישות</a> · <a href="privacy.html">מדיניות פרטיות</a>
     <div>© מכון משפטי ארץ</div>
   </footer>
 
-  <script type="module" src="js/app.js?v=20261015c"></script>
+  <script type="module" src="js/app.js?v=20261020"></script>
 </body>
 </html>
