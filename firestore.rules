@@ -148,12 +148,19 @@ service cloud.firestore {
       allow delete: if isCourseTeam() && (resource == null || managesCourse(resource.data.courseId));
     }
     // הרשמות – כל אחד יכול להירשם (בלי חשבון); ההרשמה ממתינה לאישור הרכז
+    // המפגש שייך להשתלמות ומתקיים היום (שעון ישראל, בקירוב UTC+2)
+    function sessionIsToday(sid, cid) {
+      let s = get(/databases/$(database)/documents/sessions/$(sid)).data;
+      let t = request.time + duration.value(2, 'h');
+      return s.courseId == cid && s.date == string(t.year()) + '-' + (t.month() < 10 ? '0' : '') + string(t.month())
+        + '-' + (t.day() < 10 ? '0' : '') + string(t.day());
+    }
     match /registrations/{rid} {
       allow read: if isCourseAll()
         || (hasRole(['course_manager']) && myEmail() in resource.data.managerEmails)
         || (signedIn() && resource.data.email == myEmail());
       allow create: if (
-          request.resource.data.keys().hasOnly(['courseId', 'email', 'firstName', 'lastName', 'phone', 'city',
+          request.resource.data.keys().hasOnly(['courseId', 'email', 'firstName', 'lastName', 'phone', 'city', 'institution', 'address',
              'consentEmail', 'status', 'managerEmails', 'scholarship', 'note', 'source', 'createdAt'])
           && request.resource.data.status == 'pending'
           && request.resource.data.source == 'טופס באתר'
@@ -163,19 +170,49 @@ service cloud.firestore {
           && request.resource.data.firstName is string && request.resource.data.firstName.size() > 0 && request.resource.data.firstName.size() <= 60
           && request.resource.data.lastName is string && request.resource.data.lastName.size() <= 60
           && request.resource.data.phone is string && request.resource.data.phone.size() <= 20
-          && request.resource.data.city is string && request.resource.data.city.size() <= 60
+          && request.resource.data.get('city', '') is string && request.resource.data.get('city', '').size() <= 60
+          && request.resource.data.get('institution', '') is string && request.resource.data.get('institution', '').size() <= 120
+          && request.resource.data.get('address', '') is string && request.resource.data.get('address', '').size() <= 200
           && request.resource.data.note is string && request.resource.data.note.size() <= 1000
           && request.resource.data.consentEmail is bool
+          // אם בהשתלמות הוגדר שהסכמה לדיוור היא חובה
+          && (courseDoc(request.resource.data.courseId).get('formFields', {}).get('consent', 'required') != 'required'
+              || request.resource.data.consentEmail == true)
           && (!('scholarship' in request.resource.data) || (request.resource.data.scholarship.status == 'pending'
                 && request.resource.data.scholarship.reason.size() <= 1000))
           && request.resource.data.createdAt == request.time
         ) || (isCourseTeam() && managesCourse(request.resource.data.courseId));
-      // הרכז מעדכן הכול; המשתלם יכול לעדכן פרטי קשר ולבטל את ההרשמה שלו
+      // הרכז מעדכן הכול; המשתלם יכול לעדכן פרטי קשר, לבטל את ההרשמה שלו, ולסמן "אני נוכח" ביום המפגש
       allow update: if managesCourse(resource.data.courseId)
         || (signedIn() && resource.data.email == myEmail()
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['phone', 'city', 'consentEmail', 'status', 'updatedAt'])
-            && request.resource.data.status in [resource.data.status, 'cancelled']);
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['phone', 'city', 'institution', 'address', 'consentEmail', 'status', 'updatedAt'])
+            && request.resource.data.status in [resource.data.status, 'cancelled'])
+        || (signedIn() && resource.data.email == myEmail() && resource.data.status == 'registered'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['attendance', 'selfCheckin'])
+            && request.resource.data.selfCheckin.keys().hasOnly(['sid', 'at'])
+            && request.resource.data.selfCheckin.at == request.time
+            && request.resource.data.attendance.diff(resource.data.get('attendance', {})).affectedKeys().hasOnly([request.resource.data.selfCheckin.sid])
+            && request.resource.data.attendance[request.resource.data.selfCheckin.sid] == true
+            && sessionIsToday(request.resource.data.selfCheckin.sid, resource.data.courseId));
       allow delete: if hasRole(['admin', 'head']);
+    }
+    // חומרי לימוד לכל מפגש (קישורים) – לנרשמים מאושרים ולצוות
+    match /materials/{sid} {
+      allow read: if isCourseTeam() || registeredTo(resource.data.courseId);
+      allow create: if managesCourse(request.resource.data.courseId);
+      allow update: if managesCourse(resource.data.courseId);
+      allow delete: if isCourseTeam() && (resource == null || managesCourse(resource.data.courseId));
+    }
+    // משוב בסוף השתלמות – מזהה: השתלמות_מייל. המשתלם כותב רק את שלו, הרכז רואה את כולם
+    match /feedback/{fid} {
+      allow get: if signedIn() && fid == fid.split('_')[0] + '_' + myEmail();
+      allow read: if managesCourse(resource.data.courseId);
+      allow create, update: if registeredTo(request.resource.data.courseId)
+        && fid == request.resource.data.courseId + '_' + myEmail()
+        && request.resource.data.email == myEmail()
+        && request.resource.data.keys().hasOnly(['courseId', 'email', 'name', 'overall', 'content', 'lecturers', 'recommend', 'comments', 'at'])
+        && request.resource.data.comments is string && request.resource.data.comments.size() <= 3000
+        && request.resource.data.at == request.time;
     }
     // הרשאות גישה לאזור האישי – מזהה: השתלמות_מייל
     match /courseAccess/{aid} {
@@ -184,6 +221,61 @@ service cloud.firestore {
         && aid == request.resource.data.courseId + '_' + request.resource.data.email;
       allow delete: if (isCourseTeam() && (resource == null || managesCourse(resource.data.courseId)))
         || (signedIn() && resource.data.email == myEmail());
+    }
+    // ---------- הסרה מרשימת התפוצה ----------
+    // unsubTokens / unsubByEmail נכתבים רק על ידי הסקריפט (אין גישה מהאתר).
+    // בדף ההסרה כותבים optouts/{מזהה} – רק עם מזהה אמיתי ורק עם המייל שהמזהה שייך לו.
+    match /optouts/{t} {
+      allow read: if isTeam();
+      allow create, update: if exists(/databases/$(database)/documents/unsubTokens/$(t))
+        && request.resource.data.email == get(/databases/$(database)/documents/unsubTokens/$(t)).data.email
+        && request.resource.data.keys().hasOnly(['email', 'reason', 'at'])
+        && request.resource.data.reason is string && request.resource.data.reason.size() <= 60
+        && request.resource.data.at == request.time;
+      allow delete: if isEditor();
+    }
+    // ---------- יומן שינויים: כל איש צוות כותב (רק בשמו), רק מנהל מערכת קורא, אי אפשר לשנות או למחוק ----------
+    match /auditLog/{id} {
+      allow read: if isAdmin();
+      allow create: if isTeam() && request.resource.data.by == myEmail() && request.resource.data.at == request.time
+        && request.resource.data.keys().hasOnly(['action', 'target', 'details', 'by', 'at']);
+    }
+    // מידע פרטי של הסקריפט (כתובת ה-Webhook של Jgive) – רק מנהל מערכת
+    match /private/{id} {
+      allow read: if isAdmin();
+    }
+    // ---------- ספרים ----------
+    // עדכונים מ-Jgive (נכתבים על ידי הסקריפט)
+    match /jgiveInbox/{id} {
+      allow read: if isEditor();
+      allow update: if isEditor() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['processed', 'processedAt', 'contactId', 'orderId', 'note']);
+      allow delete: if isAdmin();
+    }
+    // הזמנות מהחנות – כל אחד יכול להזמין (סטטוס "חדשה" בלבד); הצוות מנהל
+    match /orders/{id} {
+      allow create: if request.resource.data.keys().hasOnly(['items', 'total', 'firstName', 'lastName', 'email', 'phone', 'address', 'delivery', 'note', 'consentEmail', 'status', 'createdAt'])
+        && request.resource.data.status == 'new'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.items is list && request.resource.data.items.size() > 0 && request.resource.data.items.size() <= 30
+        && request.resource.data.total is number && request.resource.data.total >= 0 && request.resource.data.total < 100000
+        && request.resource.data.email is string && request.resource.data.email.size() > 3 && request.resource.data.email.size() <= 120
+        && request.resource.data.firstName is string && request.resource.data.firstName.size() <= 60
+        && request.resource.data.lastName is string && request.resource.data.lastName.size() <= 60
+        && request.resource.data.phone is string && request.resource.data.phone.size() <= 20
+        && request.resource.data.address is string && request.resource.data.address.size() <= 300
+        && request.resource.data.note is string && request.resource.data.note.size() <= 1000
+        && request.resource.data.consentEmail is bool;
+      allow read, update: if isEditor();
+      allow delete: if isAdmin();
+    }
+    // מוסדות (בתי כנסת וכו') וחלוקת ספרים
+    match /institutions/{id} {
+      allow read: if isStaff();
+      allow write: if isEditor();
+    }
+    match /distributions/{id} {
+      allow read: if isStaff();
+      allow write: if isEditor();
     }
     // מיילים מתוזמנים – נשלחים על ידי הסקריפט בחשבון ה-Gmail של המכון (שעוקף את החוקים בהרשאת IAM)
     match /mailQueue/{id} {

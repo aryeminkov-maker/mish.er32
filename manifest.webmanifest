@@ -1,0 +1,21 @@
+{
+  "name": "מכון משפטי ארץ – מערכת",
+  "short_name": "משפטי ארץ",
+  "description": "מערכת הניהול של מכון משפטי ארץ: אנשי קשר, שו\"ת, השתלמויות, ספרים ומחקר",
+  "lang": "he",
+  "dir": "rtl",
+  "start_url": "index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f7f5f0",
+  "theme_color": "#c19937",
+  "icons": [
+    { "src": "img/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "img/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "shortcuts": [
+    { "name": "שו\"ת", "url": "index.html#questions" },
+    { "name": "השתלמויות", "url": "index.html#courses" },
+    { "name": "האזור האישי", "url": "my.html" }
+  ]
+}

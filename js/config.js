@@ -22,7 +22,5 @@ export const TOPICS = [
   "אחר"
 ];
 
-// 4. שליחת מיילים מחשבון ה-Gmail של המכון (ההוראות ב-README, פרק "שליחת מיילים")
-//    השאירו ריק כדי לבטל את השליחה מהמערכת
-export const MAIL_FROM = "";        // כתובת ה-Gmail של המכון, למשל "mishpetei.eretz@gmail.com"
-export const MAIL_CLIENT_ID = "";   // מזהה ה-OAuth Client מ-Google Cloud (מסתיים ב-.apps.googleusercontent.com)
+// 4. שליחת מיילים: אין צורך בהגדרה כאן. כל המיילים נשלחים על ידי הסקריפט mail-scheduler.gs
+//    שמותקן בחשבון ה-Gmail של המכון (ההוראות ב-README, פרק "שליחת מיילים").

@@ -7,8 +7,11 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700&family=Rubik:wght@400;500;700;800;900&family=Frank+Ruhl+Libre:wght@400;500;700&family=Assistant:wght@400;600;700&display=swap" rel="stylesheet">
   <link rel="icon" type="image/png" href="img/favicon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="img/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#c19937">
-  <link rel="stylesheet" href="css/style.css?v=20261022">
+  <link rel="stylesheet" href="css/style.css?v=20261026">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
@@ -50,6 +53,8 @@
         <button data-view="calendar" data-roles="admin,head,staff,course_manager">לוח שנה</button>
         <button data-view="research" data-roles="admin,head,research_coord,researcher">מחקר</button>
         <button data-view="mail" data-roles="admin,head,staff,rabbi,course_manager">מיילים</button>
+        <button data-view="books" data-roles="admin,head,staff">ספרים</button>
+        <button data-view="reports" data-roles="admin,head">דוחות</button>
         <button data-view="import" data-roles="admin,head,staff">ייבוא</button>
         <button data-view="users" data-roles="admin">משתמשים</button>
         <button data-view="settings" data-roles="admin,head">הגדרות</button>
@@ -62,10 +67,11 @@
   <div id="setupView"></div>
   <div id="modalRoot"></div>
   <footer class="site-footer">
-    <a href="ask.html">שאל את הרב</a> · <a href="shut.html">מאגר שו"ת</a> · <a href="my.html">האזור האישי</a> · <a href="accessibility.html">הצהרת נגישות</a> · <a href="privacy.html">מדיניות פרטיות</a>
+    <a href="ask.html">שאל את הרב</a> · <a href="shut.html">מאגר שו"ת</a> · <a href="shop.html">חנות הספרים</a> · <a href="my.html">האזור האישי</a> · <a href="accessibility.html">הצהרת נגישות</a> · <a href="privacy.html">מדיניות פרטיות</a> · <a href="#selftest">בדיקת הרשאות</a>
     <div>© מכון משפטי ארץ</div>
   </footer>
 
-  <script type="module" src="js/app.js?v=20261022"></script>
+  <script type="module" src="js/app.js?v=20261026"></script>
+  <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
 </body>
 </html>

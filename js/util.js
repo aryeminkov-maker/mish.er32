@@ -69,3 +69,13 @@ export const uid = () => Math.random().toString(36).slice(2, 10);
 
 // קישור יוטיוב תקין
 export const isUrl = (s) => /^https?:\/\/\S+$/i.test(String(s || "").trim());
+
+// ---------- שדות טופס ההרשמה להשתלמות ----------
+// לכל השתלמות אפשר לקבוע לכל שדה: חובה / רשות / לא להציג (שם ומייל תמיד חובה)
+export const REG_FIELDS = [
+  ["phone", "טלפון", true], ["institution", "מוסד לימודים", true], ["address", "כתובת מגורים", true],
+  ["note", "הערות", true], ["consent", "הסכמה לקבלת עדכונים במייל", false]
+]; // [מפתח, תווית, אפשר להסתיר]
+export const REG_DEFAULTS = { phone: "required", institution: "optional", address: "optional", note: "optional", consent: "required" };
+export const regFieldMode = (course, key) => (course?.formFields || {})[key] || REG_DEFAULTS[key];
+export const MODE_LABEL = { required: "חובה", optional: "רשות", hidden: "לא להציג" };

@@ -7,8 +7,11 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="icon" type="image/png" href="img/favicon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="img/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#c19937">
-  <link rel="stylesheet" href="css/style.css?v=20261022">
+  <link rel="stylesheet" href="css/style.css?v=20261026">
 </head>
 <body>
   <a class="skip-link" href="#content">דילוג לתוכן</a>
@@ -22,7 +25,7 @@
       <p>מכון משפטי ארץ רואה חשיבות רבה במתן שירות שוויוני לכל הפונים אליו, ובכלל זה לאנשים עם מוגבלות. אנו פועלים להנגיש את האתר בהתאם לתקנות שוויון זכויות לאנשים עם מוגבלות (התאמות נגישות לשירות), התשע"ג-2013.</p>
 
       <h2>רמת הנגישות</h2>
-      <p>האתר נבנה בהתאם להנחיות התקן הישראלי ת"י 5568, המבוסס על הנחיות WCAG 2.0 ברמה AA. בדיקת הנגישות האחרונה נערכה בתאריך <mark>[תאריך הבדיקה]</mark>.</p>
+      <p>האתר נבנה בהתאם להנחיות התקן הישראלי ת"י 5568, המבוסס על הנחיות WCAG 2.0 ברמה AA. בדיקה אוטומטית של כל דפי האתר בכלי axe לפי הנחיות WCAG 2.1 ברמה AA נערכה בתאריך 20.10.2026, והליקויים שנמצאו תוקנו. בדיקה ידנית על ידי מורשה/ית נגישות שירות נערכה בתאריך <mark>[תאריך הבדיקה הידנית]</mark>.</p>
 
       <h2>התאמות שבוצעו באתר</h2>
       <ul>
@@ -53,8 +56,9 @@
     </article>
   </main>
   <footer class="site-footer">
-    <a href="ask.html">שאל את הרב</a> · <a href="shut.html">מאגר שו"ת</a> · <a href="my.html">האזור האישי</a> · <a href="accessibility.html">הצהרת נגישות</a> · <a href="privacy.html">מדיניות פרטיות</a>
+    <a href="ask.html">שאל את הרב</a> · <a href="shut.html">מאגר שו"ת</a> · <a href="shop.html">חנות הספרים</a> · <a href="my.html">האזור האישי</a> · <a href="accessibility.html">הצהרת נגישות</a> · <a href="privacy.html">מדיניות פרטיות</a>
     <div>© מכון משפטי ארץ</div>
   </footer>
+  <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
 </body>
 </html>

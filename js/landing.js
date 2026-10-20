@@ -3,8 +3,8 @@ import {
   collection, doc, getDoc, getDocs, addDoc, query, where, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { db, auth, configReady, esc, toast, setupMissingNotice, normEmail } from "./common.js?v=20261022";
-import { fmtIso, dayName } from "./util.js?v=20261022";
+import { db, auth, configReady, esc, toast, setupMissingNotice, normEmail } from "./common.js?v=20261026";
+import { fmtIso, dayName, regFieldMode } from "./util.js?v=20261026";
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -58,8 +58,17 @@ function renderInfo() {
     ${sessions.length ? `<div class="card medium"><h2>לוח המפגשים</h2>
       <ol class="sched">${sessions.map((s) => `<li><b>${dayName(s.date)} ${fmtIso(s.date)}</b> · ${esc(s.start)}–${esc(s.end)}
         ${s.topic ? `<div>${esc(s.topic)}</div>` : ""}${s.lecturer ? `<div class="small muted">${esc(s.lecturer)}</div>` : ""}</li>`).join("")}</ol></div>` : ""}
-    <div class="card medium" id="regCard"></div>`;
+    <div class="card medium" id="regCard"></div>
+    <p style="text-align:center"><a class="share-wa" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(`${course.title}${course.subtitle ? " – " + course.subtitle : ""}\nלפרטים והרשמה: ${location.href.split("#")[0].replace(/[?&]preview=1/, "")}`)}">שיתוף ההשתלמות בוואטסאפ</a></p>`;
 }
+
+const mode = (k) => regFieldMode(course, k);
+function fieldHtml(key, id, label, attrs) {
+  const m = mode(key);
+  if (m === "hidden") return "";
+  return `<div class="field"><label for="${id}">${label}${m === "required" ? " *" : ""}</label><input id="${id}" ${attrs} ${m === "required" ? 'required aria-required="true"' : ""}></div>`;
+}
+const val = (id) => ($(id)?.value || "").trim();
 
 function renderRegister() {
   const box = $("regCard");
@@ -75,15 +84,16 @@ function renderRegister() {
         <div class="field"><label for="rFirst">שם פרטי *</label><input id="rFirst" required maxlength="60" autocomplete="given-name"></div>
         <div class="field"><label for="rLast">שם משפחה *</label><input id="rLast" required maxlength="60" autocomplete="family-name"></div>
         <div class="field"><label for="rEmail">מייל *</label><input id="rEmail" type="email" required maxlength="120" autocomplete="email" dir="ltr"></div>
-        <div class="field"><label for="rPhone">טלפון *</label><input id="rPhone" type="tel" required maxlength="20" autocomplete="tel"></div>
-        <div class="field"><label for="rCity">יישוב</label><input id="rCity" maxlength="60" autocomplete="address-level2"></div>
+        ${fieldHtml("phone", "rPhone", "טלפון", 'type="tel" maxlength="20" autocomplete="tel"')}
+        ${fieldHtml("institution", "rInst", "מוסד לימודים", 'maxlength="120" placeholder="ישיבה, כולל, מכללה..."')}
       </div>
+      ${fieldHtml("address", "rAddr", "כתובת מגורים", 'maxlength="200" autocomplete="street-address" placeholder="רחוב, מספר, יישוב"')}
       <p class="small muted">אחרי אישור ההרשמה, הכניסה לאזור האישי (קישורי זום, הקלטות ונוכחות) תהיה עם <b>חשבון Google של כתובת המייל הזו</b>. אפשר לפתוח חשבון Google גם לכתובת שאינה Gmail.</p>
       ${course.scholarships ? `<label class="check" for="rSch"><input type="checkbox" id="rSch"> <span>אני מבקש/ת מלגה</span></label>
         ${course.scholarshipText ? `<p class="small muted">${esc(course.scholarshipText)}</p>` : ""}
         <div class="field hidden" id="rSchBox"><label for="rSchReason">נימוק לבקשה</label><textarea id="rSchReason" maxlength="1000"></textarea></div>` : ""}
-      <div class="field"><label for="rNote">הערות (רשות)</label><textarea id="rNote" maxlength="1000" style="min-height:60px"></textarea></div>
-      <label class="check" for="rConsent"><input type="checkbox" id="rConsent"> <span>אני מאשר/ת לקבל עדכונים מהמכון במייל (אפשר להסיר בכל עת)</span></label>
+      ${mode("note") === "hidden" ? "" : `<div class="field"><label for="rNote">הערות${mode("note") === "required" ? " *" : ""}</label><textarea id="rNote" maxlength="1000" style="min-height:60px" ${mode("note") === "required" ? "required" : ""}></textarea></div>`}
+      <label class="check" for="rConsent"><input type="checkbox" id="rConsent" ${mode("consent") === "required" ? 'required aria-required="true"' : ""}> <span>אני מאשר/ת לקבל עדכונים מהמכון במייל (אפשר להסיר בכל עת)${mode("consent") === "required" ? " *" : ""}</span></label>
       <p class="small muted">פרטיך ישמשו לניהול ההשתלמות ולקשר איתך. פרטים נוספים ב<a href="privacy.html">מדיניות הפרטיות</a>.</p>
       <div class="hp" aria-hidden="true"><label for="rWebsite">אתר</label><input id="rWebsite" tabindex="-1" autocomplete="off"></div>
       <button class="primary" type="submit" id="rSend">שליחת ההרשמה</button>
@@ -98,14 +108,19 @@ async function submit(e) {
   if ($("rWebsite").value) return; // מלכודת לרובוטים
   if (preview) return toast("זו תצוגה מקדימה – ההרשמה לא נשלחה", "bad");
   const email = normEmail($("rEmail").value);
-  const first = $("rFirst").value.trim(), last = $("rLast").value.trim(), phone = $("rPhone").value.trim();
+  const first = $("rFirst").value.trim(), last = $("rLast").value.trim(), phone = val("rPhone");
   if (!first || !last) return toast("נא למלא שם פרטי ושם משפחה", "bad");
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { $("rEmail").focus(); return toast("כתובת המייל לא תקינה", "bad"); }
-  if (phone.replace(/\D/g, "").length < 9) { $("rPhone").focus(); return toast("מספר הטלפון לא תקין", "bad"); }
+  if (mode("phone") === "required" && phone.replace(/\D/g, "").length < 9) { $("rPhone").focus(); return toast("מספר הטלפון לא תקין", "bad"); }
+  if (phone && phone.replace(/\D/g, "").length < 9) { $("rPhone").focus(); return toast("מספר הטלפון לא תקין", "bad"); }
+  for (const [k, id, l] of [["institution", "rInst", "מוסד לימודים"], ["address", "rAddr", "כתובת מגורים"], ["note", "rNote", "הערות"]]) {
+    if (mode(k) === "required" && !val(id)) { $(id).focus(); return toast(`נא למלא ${l}`, "bad"); }
+  }
+  if (mode("consent") === "required" && !$("rConsent").checked) { $("rConsent").focus(); return toast("כדי להירשם יש לאשר קבלת עדכונים במייל", "bad"); }
   const btn = $("rSend"); btn.disabled = true;
   const data = {
-    courseId: cid, email, firstName: first, lastName: last, phone, city: $("rCity").value.trim(),
-    note: $("rNote").value.trim(), consentEmail: $("rConsent").checked, status: "pending",
+    courseId: cid, email, firstName: first, lastName: last, phone, institution: val("rInst"), address: val("rAddr"),
+    note: val("rNote"), consentEmail: $("rConsent").checked, status: "pending",
     managerEmails: course.managerEmails || [], source: "טופס באתר", createdAt: serverTimestamp()
   };
   if ($("rSch")?.checked) data.scholarship = { status: "pending", reason: $("rSchReason").value.trim() };

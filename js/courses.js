@@ -2,13 +2,14 @@
 import {
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, query, where, writeBatch, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { db, normEmail, readWorkbook } from "./common.js?v=20261022";
+import { db, normEmail, readWorkbook } from "./common.js?v=20261026";
 import {
-  todayIso, fmtIso, parseIso, isoDate, addDaysIso, dayName, HEB_MONTHS, HEB_DAYS, conflictsFor, allConflicts, norm, isUrl
-} from "./util.js?v=20261022";
-import { makeAd, makeBackground, loadDesigns, courseVars, lectureTopic, VAR_NAMES } from "./media.js?v=20261022";
-import { openDesigner, thumbnail, exportPng, defaultAd, defaultBg } from "./designer.js?v=20261022";
-import { composeMail } from "./mail.js?v=20261022";
+  todayIso, fmtIso, parseIso, isoDate, addDaysIso, dayName, HEB_MONTHS, HEB_DAYS, conflictsFor, allConflicts, norm, isUrl,
+  REG_FIELDS, regFieldMode, MODE_LABEL
+} from "./util.js?v=20261026";
+import { makeAd, makeBackground, loadDesigns, courseVars, lectureTopic, VAR_NAMES } from "./media.js?v=20261026";
+import { openDesigner, thumbnail, exportPng, defaultAd, defaultBg } from "./designer.js?v=20261026";
+import { composeMail } from "./mail.js?v=20261026";
 
 const C_STATUS = { draft: "טיוטה", open: "פתוחה להרשמה", closed: "ההרשמה סגורה", done: "הסתיימה" };
 const C_BADGE = { draft: "", open: "good", closed: "warn", done: "info" };
@@ -50,6 +51,7 @@ export function courseSummary(c) {
   const pendingSch = [...c.S.regs.values()].filter((r) => r.status === "registered" && r.scholarship?.status === "pending").length;
   const pendingRegs = [...c.S.regs.values()].filter((r) => r.status === "pending").length;
   const open = coursesList(c).filter((x) => x.status === "open").length;
+  const noLink = upcoming.filter((s) => s.hasLink === false && needsLink(s));
   return `<div class="card">
     <div class="row space"><h2>השתלמויות</h2><div class="row"><button data-go="courses">להשתלמויות</button><button data-go="calendar">ללוח השנה</button></div></div>
     <div class="stats" style="margin:0 0 10px">
@@ -59,6 +61,7 @@ export function courseSummary(c) {
       <div class="stat"><div class="num ${pendingRegs ? "bad-text" : ""}">${pendingRegs}</div><div class="lbl">הרשמות ממתינות לאישור</div></div>
       <div class="stat"><div class="num">${pendingSch}</div><div class="lbl">בקשות מלגה ממתינות</div></div>
     </div>
+    ${noLink.length ? `<div class="conflict-box"><b>⚠ ${noLink.length} מפגשים בשבוע הקרוב בלי קישור זום:</b> ${noLink.map((s) => c.esc(`${c.S.courses.get(s.courseId)?.title || ""} (${fmtIso(s.date)})`)).join(" · ")}</div>` : ""}
     ${upcoming.length ? `<ul class="timeline">${upcoming.slice(0, 8).map((s) => `<li><div class="when">${dayName(s.date)} ${fmtIso(s.date)} · ${c.esc(s.start)}–${c.esc(s.end)}</div>
       <span class="dot" style="background:${colorOf(s.courseId)}"></span>${c.esc(c.S.courses.get(s.courseId)?.title || "")} – ${c.esc(s.topic || "")} ${s.lecturer ? `<span class="muted small">(${c.esc(s.lecturer)})</span>` : ""} ${conflictBadge(c, s)}</li>`).join("")}</ul>` : ""}
   </div>`;
@@ -122,7 +125,7 @@ function newCourse(c) {
 // השתלמות בודדת
 // ======================================================
 const SETUP = [["details", "פרטים"], ["schedule", "לו\"ז"], ["landing", "דף ההרשמה"], ["ad", "מודעה"], ["bg", "רקעי זום"], ["publish", "פרסום"]];
-const MANAGE = [["regs", "נרשמים"], ["attendance", "נוכחות"], ["recordings", "הקלטות"]];
+const MANAGE = [["regs", "נרשמים"], ["attendance", "נוכחות"], ["recordings", "הקלטות וחומרים"], ["feedback", "משוב"]];
 
 // מה הושלם בכל צעד של האשף
 function stepDone(c, course, key) {
@@ -156,7 +159,7 @@ function renderDetail(c) {
   c.$("backList").onclick = () => { CS.courseId = null; renderCourses(c, true); };
   c.$("cTabs").querySelectorAll("button").forEach((b) => (b.onclick = () => { CS.tab = b.dataset.tab; renderDetail(c); }));
   ({ details: tabDetails, schedule: tabSchedule, landing: tabLanding, ad: tabAd, bg: tabBg, publish: tabPublish,
-     regs: tabRegs, attendance: tabAttendance, recordings: tabRecordings })[CS.tab](c, course);
+     regs: tabRegs, attendance: tabAttendance, recordings: tabRecordings, feedback: tabFeedback })[CS.tab](c, course);
   // ניווט "הקודם / הבא" בצעדי האשף
   const i = SETUP.findIndex(([k]) => k === CS.tab);
   if (i >= 0) {
@@ -284,8 +287,16 @@ function tabDetails(c, course) {
     </div>
     <div class="field"><label for="dDesc">תיאור (יופיע בדף הנחיתה)</label><textarea id="dDesc" style="min-height:140px">${c.esc(course.description)}</textarea></div>
     <label class="check"><input type="checkbox" id="dRec" ${course.recordingsOpen ? "checked" : ""}> <span>להציג הקלטות למשתלמים באזור האישי</span></label>
+    <label class="check"><input type="checkbox" id="dRemind" ${course.remindersOn !== false ? "checked" : ""}> <span>תזכורת אוטומטית במייל לנרשמים כ-24 שעות לפני כל מפגש (עם קישור הזום)</span></label>
+    <label class="check"><input type="checkbox" id="dCal" ${course.calendarOn !== false ? "checked" : ""}> <span>לאפשר למשתלמים להוסיף את המפגשים ליומן Google / לטלפון</span></label>
+    <label class="check"><input type="checkbox" id="dFb" ${course.feedbackOn !== false ? "checked" : ""}> <span>בקשת משוב אוטומטית במייל אחרי המפגש האחרון</span></label>
     <label class="check"><input type="checkbox" id="dSch" ${course.scholarships ? "checked" : ""}> <span>לאפשר בקשת מלגה בהרשמה</span></label>
     <div class="field" style="margin-top:8px"><label for="dSchText">הסבר על המלגה (יוצג בטופס)</label><input id="dSchText" value="${c.esc(course.scholarshipText)}"></div>
+    <h3 style="margin-top:16px">שדות בטופס ההרשמה</h3>
+    <p class="small muted" style="margin-top:0">שם פרטי, שם משפחה ומייל – תמיד חובה.</p>
+    <div class="form-fields">${REG_FIELDS.map(([k, l, canHide]) => `<div class="ff-row"><span>${l}</span>
+      <select id="ff_${k}" aria-label="${l}">${Object.entries(MODE_LABEL).filter(([m]) => canHide || m !== "hidden").map(([m, ml]) =>
+        `<option value="${m}" ${regFieldMode(course, k) === m ? "selected" : ""}>${ml}</option>`).join("")}</select></div>`).join("")}</div>
     <div class="row space" style="margin-top:12px"><button class="primary" id="dSave">שמירה</button>
       ${c.can("admin", "head") ? '<button class="danger" id="dDel">מחיקת ההשתלמות</button>' : ""}</div>
   </div>`;
@@ -308,7 +319,9 @@ async function saveDetails(c, course) {
     lecturers: c.$("dLect").value.trim(), location: c.$("dLoc").value.trim(), timeText: c.$("dTime").value.trim(), price: c.$("dPrice").value.trim(),
     startDate: c.$("dStart").value, endDate: c.$("dEnd").value, capacity: cap ? Number(cap) : null, managerEmails: mgr,
     description: c.$("dDesc").value.trim(), recordingsOpen: c.$("dRec").checked, scholarships: c.$("dSch").checked,
-    scholarshipText: c.$("dSchText").value.trim(), updatedAt: serverTimestamp()
+    remindersOn: c.$("dRemind").checked, calendarOn: c.$("dCal").checked, feedbackOn: c.$("dFb").checked,
+    scholarshipText: c.$("dSchText").value.trim(), updatedAt: serverTimestamp(),
+    formFields: Object.fromEntries(REG_FIELDS.map(([k]) => [k, c.$("ff_" + k).value]))
   };
   if (!data.title) return c.toast("נא למלא שם", "bad");
   try {
@@ -326,9 +339,10 @@ async function saveDetails(c, course) {
 async function deleteCourse(c, course) {
   const n = regsOf(c, course.id).length;
   if (!confirm(`למחוק את "${course.title}"? יימחקו גם ${sessionsOf(c, course.id).length} מפגשים${n ? ` ו-${n} הרשמות` : ""}. ההיסטוריה ב-CRM תישמר.`)) return;
+  c.audit("מחיקת השתלמות", course.title, `${n} הרשמות`);
   try {
     const b = writeBatch(db);
-    sessionsOf(c, course.id).forEach((s) => { b.delete(doc(db, "sessions", s.id)); b.delete(doc(db, "sessionPrivate", s.id)); b.delete(doc(db, "recordings", s.id)); });
+    sessionsOf(c, course.id).forEach((s) => { b.delete(doc(db, "sessions", s.id)); b.delete(doc(db, "sessionPrivate", s.id)); b.delete(doc(db, "recordings", s.id)); b.delete(doc(db, "materials", s.id)); });
     regsOf(c, course.id).forEach((r) => b.delete(doc(db, "registrations", r.id)));
     b.delete(doc(db, "courses", course.id));
     await b.commit();
@@ -342,15 +356,35 @@ function tabSchedule(c, course) {
   c.$("cBody").innerHTML = `
     <div class="row" style="margin-bottom:10px"><button class="primary" id="addSess">+ מפגש</button><button id="addSeries">+ סדרת מפגשים שבועיים</button></div>
     <div class="card" style="padding:0"><div class="table-wrap"><table>
-      <thead><tr><th>#</th><th>תאריך</th><th>שעה</th><th>נושא</th><th>מרצה</th><th>חשבון זום</th><th></th></tr></thead>
+      <thead><tr><th>#</th><th>תאריך</th><th>שעה</th><th>נושא</th><th>מרצה</th><th>חשבון זום</th><th>קישור</th><th></th></tr></thead>
       <tbody>${ss.map((s, i) => `<tr class="click" data-sess="${s.id}">
         <td>${i + 1}</td><td>${dayName(s.date)} ${fmtIso(s.date)}</td><td>${c.esc(s.start)}–${c.esc(s.end)}</td>
-        <td>${c.esc(s.topic)}</td><td>${c.esc(s.lecturer)}</td><td>${c.esc(s.zoomAccount || "—")}</td><td>${conflictBadge(c, s)}</td></tr>`).join("")
+        <td>${c.esc(s.topic)}</td><td>${c.esc(s.lecturer)}</td><td>${c.esc(s.zoomAccount || "—")}</td>
+        <td data-linkcell="${s.id}">${linkBadge(s)}</td><td>${conflictBadge(c, s)}</td></tr>`).join("")
         || '<tr><td colspan="7" class="muted">עדיין אין מפגשים</td></tr>'}</tbody></table></div></div>
-    <p class="small muted">המערכת בודקת התנגשויות מול כל ההשתלמויות: אותו מרצה או אותו חשבון זום באותו זמן.</p>`;
+    <p class="small muted">המערכת בודקת התנגשויות מול כל ההשתלמויות: אותו מרצה או אותו חשבון זום באותו זמן.
+      ${course.remindersOn !== false ? "כ-24 שעות לפני כל מפגש נשלחת לנרשמים תזכורת אוטומטית עם קישור הזום – לכן חשוב שלכל מפגש יהיה קישור." : ""}</p>`;
+  checkLinks(c, ss);
   c.$("addSess").onclick = () => openSession(c, course, null);
   c.$("addSeries").onclick = () => openSeries(c, course);
   document.querySelectorAll("[data-sess]").forEach((tr) => (tr.onclick = () => openSession(c, course, tr.dataset.sess)));
+}
+
+// קישור זום חסר במפגש עתידי (מפגש פרונטלי – בלי חשבון זום – לא צריך קישור)
+const needsLink = (s) => s.zoomAccount && s.date >= todayIso();
+const linkBadge = (s) => s.hasLink === true ? '<span class="badge good">✓</span>'
+  : s.hasLink === false && needsLink(s) ? '<span class="badge bad">⚠ חסר קישור</span>' : s.hasLink === false ? "—" : "";
+// מפגשים ישנים בלי הסימון hasLink – בודקים פעם אחת ומעדכנים
+async function checkLinks(c, ss) {
+  for (const s of ss.filter((x) => x.hasLink === undefined)) {
+    try {
+      const p = await getDoc(doc(db, "sessionPrivate", s.id));
+      const has = !!(p.exists() && p.data().zoomLink);
+      s.hasLink = has;
+      const cell = document.querySelector(`[data-linkcell="${s.id}"]`); if (cell) cell.innerHTML = linkBadge(s);
+      updateDoc(doc(db, "sessions", s.id), { hasLink: has }).catch(() => {});
+    } catch { /* */ }
+  }
 }
 
 const lecturerList = (c) => [...new Set(sessionsOf(c).flatMap((s) => String(s.lecturer || "").split(",").map((x) => x.trim()).filter(Boolean)))].sort();
@@ -391,7 +425,9 @@ export async function openSession(c, course, sid) {
       const link = c.$("sLink").value.trim();
       if (link && !isUrl(link)) return c.toast("קישור ההצטרפות לא תקין", "bad");
       if (check().length && !confirm("יש התנגשות עם מפגש אחר. לשמור בכל זאת?")) return;
-      const data = { courseId: course.id, date: d.date, start: d.start, end: d.end, topic: c.$("sTopic").value.trim(), lecturer: d.lecturer.trim(), zoomAccount: d.zoomAccount, updatedAt: serverTimestamp() };
+      const data = { courseId: course.id, date: d.date, start: d.start, end: d.end, topic: c.$("sTopic").value.trim(), lecturer: d.lecturer.trim(), zoomAccount: d.zoomAccount, hasLink: !!link, updatedAt: serverTimestamp() };
+      // מפגש שהוזז – התזכורת האוטומטית תישלח שוב לפי המועד החדש
+      if (sid && (s.date !== d.date || s.start !== d.start)) data.remindedAt = null;
       try {
         const id = sid || doc(collection(db, "sessions")).id;
         const b = writeBatch(db);
@@ -405,7 +441,7 @@ export async function openSession(c, course, sid) {
       if (!confirm("למחוק את המפגש? הנוכחות שנרשמה עליו תימחק מהדוחות.")) return;
       try {
         const b = writeBatch(db);
-        ["sessions", "sessionPrivate", "recordings"].forEach((col) => b.delete(doc(db, col, sid)));
+        ["sessions", "sessionPrivate", "recordings", "materials"].forEach((col) => b.delete(doc(db, col, sid)));
         await b.commit(); c.closeModal();
       } catch (e) { c.toast("המחיקה נכשלה: " + e.code, "bad"); }
     };
@@ -450,7 +486,7 @@ function openSeries(c, course) {
         const b = writeBatch(db);
         list.forEach((s, i) => {
           const id = doc(collection(db, "sessions")).id;
-          b.set(doc(db, "sessions", id), { courseId: course.id, date: s.date, start: s.start, end: s.end, topic: `מפגש ${startN + i + 1}`, lecturer: s.lecturer.trim(), zoomAccount: s.zoomAccount, updatedAt: serverTimestamp() });
+          b.set(doc(db, "sessions", id), { courseId: course.id, date: s.date, start: s.start, end: s.end, topic: `מפגש ${startN + i + 1}`, lecturer: s.lecturer.trim(), zoomAccount: s.zoomAccount, hasLink: !!link, updatedAt: serverTimestamp() });
           b.set(doc(db, "sessionPrivate", id), { courseId: course.id, zoomLink: link });
         });
         await b.commit();
@@ -467,7 +503,7 @@ function tabRegs(c, course) {
   if (!CS.regStatus) CS.regStatus = all.some((r) => r.status === "pending") ? "pending" : "registered";
   const t = norm(CS.regSearch);
   const dupEmails = new Set(all.map((r) => r.email).filter((e, i, arr) => arr.indexOf(e) !== i));
-  const list = all.filter((r) => (CS.regStatus === "all" || r.status === CS.regStatus) && (!t || norm([fullName(r), r.email, r.phone, r.city].join(" ")).includes(t)))
+  const list = all.filter((r) => (CS.regStatus === "all" || r.status === CS.regStatus) && (!t || norm([fullName(r), r.email, r.phone, r.city, r.address, r.institution].join(" ")).includes(t)))
     .sort((a, b) => fullName(a).localeCompare(fullName(b), "he"));
   const cnt = (st) => all.filter((r) => st === "all" || r.status === st).length;
   const pending = all.filter((r) => r.status === "pending");
@@ -479,13 +515,13 @@ function tabRegs(c, course) {
     <div class="row" style="margin-bottom:10px">
       <input id="regSearch" placeholder="חיפוש" value="${c.esc(CS.regSearch)}" style="width:180px" aria-label="חיפוש נרשמים">
       ${CS.regStatus === "pending" && pending.length ? `<button class="primary" id="approveAll">אישור כל הממתינים (${pending.length})</button>` : ""}
-      <button id="addReg">+ הוספת נרשם</button>
+      <button id="addReg">+ הוספת נרשם</button><button id="importRegs">ייבוא מאקסל</button>
       <span class="grow"></span>
       <button id="mailAll">מייל למאושרים</button><button id="mailReminder">תזכורת למפגש הבא</button><button id="regExport">ייצוא ל-Excel</button></div>
     <div class="card" style="padding:0"><div class="table-wrap"><table>
       <thead><tr><th>שם</th><th>מייל (לכניסה)</th><th>טלפון</th><th>נרשם</th><th>נוכחות</th>${course.scholarships ? "<th>מלגה</th>" : ""}<th>סטטוס</th><th></th></tr></thead>
       <tbody>${list.map((r) => `<tr>
-        <td>${c.esc(fullName(r))}${r.city ? `<div class="small muted">${c.esc(r.city)}</div>` : ""}${r.note ? `<div class="small" title="${c.esc(r.note)}">📝 ${c.esc(r.note.slice(0, 40))}${r.note.length > 40 ? "…" : ""}</div>` : ""}</td>
+        <td>${c.esc(fullName(r))}${r.institution ? `<div class="small muted">🎓 ${c.esc(r.institution)}</div>` : ""}${r.address || r.city ? `<div class="small muted">${c.esc(r.address || r.city)}</div>` : ""}${r.note ? `<div class="small" title="${c.esc(r.note)}">📝 ${c.esc(r.note.slice(0, 40))}${r.note.length > 40 ? "…" : ""}</div>` : ""}</td>
         <td dir="ltr" style="text-align:right">${c.esc(r.email)}${dupEmails.has(r.email) ? ' <span class="badge warn">כפול</span>' : ""}</td><td>${c.esc(r.phone)}</td>
         <td>${c.fmtDate(r.createdAt)}${r.source && r.source !== "טופס באתר" ? `<div class="small muted">${c.esc(r.source)}</div>` : ""}</td>
         <td>${r.status === "registered" && ss.length ? `${attendedCount(r, ss)}/${ss.length}` : "—"}</td>
@@ -502,13 +538,14 @@ function tabRegs(c, course) {
   c.$("cBody").querySelectorAll("[data-rst]").forEach((b) => (b.onclick = () => { CS.regStatus = b.dataset.rst; tabRegs(c, course); }));
   c.$("regSearch").oninput = (e) => { CS.regSearch = e.target.value; const pos = e.target.selectionStart; tabRegs(c, course); c.$("regSearch").focus(); c.$("regSearch").setSelectionRange(pos, pos); };
   c.$("regExport").onclick = () => c.exportXlsx(list.map((r) => ({
-    "שם פרטי": r.firstName || "", "שם משפחה": r.lastName || "", "מייל": r.email, "טלפון": r.phone || "", "יישוב": r.city || "",
+    "שם פרטי": r.firstName || "", "שם משפחה": r.lastName || "", "מייל": r.email, "טלפון": r.phone || "", "מוסד לימודים": r.institution || "", "כתובת מגורים": r.address || r.city || "",
     "תאריך הרשמה": c.fmtDate(r.createdAt), "סטטוס": R_STATUS[r.status] || r.status, "אישור דיוור": r.consentEmail ? "כן" : "לא",
     "נוכחות": ss.length && r.status === "registered" ? `${attendedCount(r, ss)}/${ss.length}` : "", "מלגה": r.scholarship ? SCH[r.scholarship.status] : "",
     "נימוק מלגה": r.scholarship?.reason || "", "הערות": r.note || ""
   })), `נרשמים-${course.title}.xlsx`);
   if (c.$("approveAll")) c.$("approveAll").onclick = () => approve(c, course, pending);
   c.$("addReg").onclick = () => editReg(c, course, null);
+  c.$("importRegs").onclick = () => importRegs(c, course);
   c.$("mailAll").onclick = () => mailRegistered(c, course);
   c.$("mailReminder").onclick = () => mailReminder(c, course);
   document.querySelectorAll("[data-appr]").forEach((b) => (b.onclick = () => approve(c, course, [c.S.regs.get(b.dataset.appr)])));
@@ -542,6 +579,7 @@ async function approve(c, course, regs) {
       await b.commit();
     }
     c.toast(regs.length > 1 ? `אושרו ${regs.length} נרשמים` : "אושר", "good");
+    c.audit("אישור נרשמים", course.title, regs.map((r) => r.email).join(", "));
     mailApproval(c, course, regs);
   } catch (e) { c.toast("האישור נכשל: " + e.code, "bad"); }
 }
@@ -550,6 +588,7 @@ async function setStatus(c, course, r, status) {
   try {
     const b = writeBatch(db);
     b.update(doc(db, "registrations", r.id), { status, statusAt: serverTimestamp(), statusBy: c.myEmail() });
+    c.audit("שינוי סטטוס נרשם", course.title, `${r.email} → ${R_STATUS[status] || status}`);
     b.delete(doc(db, "courseAccess", accessId(course.id, r.email)));
     await b.commit();
     c.toast("עודכן", "good");
@@ -565,7 +604,8 @@ function editReg(c, course, rid) {
       <div class="field"><label for="eLast">שם משפחה</label><input id="eLast" value="${c.esc(r.lastName)}"></div>
       <div class="field"><label for="eEmail">מייל (לכניסה עם Google)</label><input id="eEmail" type="email" dir="ltr" value="${c.esc(r.email)}"></div>
       <div class="field"><label for="ePhone">טלפון</label><input id="ePhone" value="${c.esc(r.phone)}"></div>
-      <div class="field"><label for="eCity">יישוב</label><input id="eCity" value="${c.esc(r.city)}"></div>
+      <div class="field"><label for="eInst">מוסד לימודים</label><input id="eInst" value="${c.esc(r.institution)}"></div>
+      <div class="field"><label for="eAddr">כתובת מגורים</label><input id="eAddr" value="${c.esc(r.address || r.city)}"></div>
       <div class="field"><label for="eStatus">סטטוס</label><select id="eStatus">${Object.entries(R_STATUS).map(([k, v]) => `<option value="${k}" ${r.status === k ? "selected" : ""}>${v}</option>`).join("")}</select></div>
     </div>
     <div class="field"><label for="eNote">הערות</label><textarea id="eNote" style="min-height:60px">${c.esc(r.note)}</textarea></div>
@@ -576,7 +616,7 @@ function editReg(c, course, rid) {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return c.toast("כתובת המייל לא תקינה", "bad");
       if (!c.$("eFirst").value.trim()) return c.toast("נא למלא שם", "bad");
       const data = { firstName: c.$("eFirst").value.trim(), lastName: c.$("eLast").value.trim(), email, phone: c.$("ePhone").value.trim(),
-        city: c.$("eCity").value.trim(), note: c.$("eNote").value.trim(), consentEmail: c.$("eConsent").checked, status };
+        institution: c.$("eInst").value.trim(), address: c.$("eAddr").value.trim(), note: c.$("eNote").value.trim(), consentEmail: c.$("eConsent").checked, status };
       try {
         const b = writeBatch(db);
         const id = rid || doc(collection(db, "registrations")).id;
@@ -592,6 +632,95 @@ function editReg(c, course, rid) {
         c.toast("נשמר", "good"); c.closeModal();
         if (status === "registered" && (!rid || r.status !== "registered")) mailApproval(c, course, [{ ...data, id }]);
       } catch (e) { c.toast("השמירה נכשלה: " + e.code, "bad"); }
+    };
+  });
+}
+
+// ---------- ייבוא נרשמים מאקסל ----------
+const IMP_COLS = [
+  ["firstName", /שם פרטי|first/i], ["lastName", /שם משפחה|last|surname/i], ["fullName", /^\s*(שם|שם מלא|full ?name|name)\s*$/i],
+  ["email", /mail|מייל|דוא/i], ["phone", /טלפון|נייד|פלאפון|phone|mobile/i], ["institution", /מוסד|ישיבה|כולל|institution/i],
+  ["address", /כתובת|address/i], ["city", /עיר|יישוב|ישוב|city/i], ["note", /הער|note/i], ["consent", /דיוור|הסכמ|consent/i],
+  ["status", /סטטוס|status|מצב/i]
+];
+const IMP_STATUS = (v) => {
+  const t = String(v || "").trim();
+  if (!t) return "";
+  if (/ממתין|pending|המתנה/i.test(t)) return "pending";
+  if (/נדח|reject|לא אושר/i.test(t)) return "rejected";
+  if (/בוטל|ביטל|cancel/i.test(t)) return "cancelled";
+  if (/אושר|מאושר|רשום|נרשם|השתתף|registered|approved|כן/i.test(t)) return "registered";
+  return "";
+};
+const yes = (v) => /^(כן|yes|y|true|1|v|✓|✔|x)$/i.test(String(v).trim());
+
+function importRegs(c, course) {
+  c.openModal(`
+    <div class="head"><h2>ייבוא נרשמים מאקסל</h2><button class="close" data-close aria-label="סגירה">×</button></div>
+    <div class="context">הנרשמים ייובאו להשתלמות: <b>${c.esc(course.title)}</b></div>
+    <p class="small">קובץ Excel או CSV עם שורת כותרות. המערכת מזהה את העמודות לפי השם:
+      <b>שם פרטי</b>, <b>שם משפחה</b> (או <b>שם מלא</b>), <b>מייל</b> (חובה), טלפון, מוסד לימודים, כתובת, הערות, הסכמה לדיוור (כן/לא),
+      ו<b>סטטוס</b> (מאושר / ממתין / נדחה / ביטל).</p>
+    <div class="field"><label for="iFile">הקובץ</label><input type="file" id="iFile" accept=".xlsx,.xls,.csv"></div>
+    <div id="iPrev"></div>`, () => {
+    c.$("iFile").onchange = async (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      let rows;
+      try { const wb = await readWorkbook(f); rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "" }); }
+      catch { return c.toast("לא הצלחתי לקרוא את הקובץ", "bad"); }
+      const hi = rows.findIndex((r) => r.some((x) => /mail|מייל|דוא/i.test(String(x))));
+      if (hi < 0) return c.toast("לא נמצאה עמודת מייל בקובץ", "bad");
+      const head = rows.at(hi).map((x) => String(x).trim());
+      const col = {};
+      IMP_COLS.forEach(([k, re]) => { const i = head.findIndex((h, j) => re.test(h) && !Object.values(col).includes(j)); if (i >= 0) col[k] = i; });
+      const get = (row, k) => (col[k] >= 0 ? String(row.at(col[k]) ?? "").trim() : "");
+      const existing = new Set(regsOf(c, course.id).map((r) => normEmail(r.email)));
+      const seen = new Set(), ok = [], dup = [], bad = [];
+      rows.slice(hi + 1).forEach((row) => {
+        if (!row.some((x) => String(x).trim())) return;
+        const email = normEmail(get(row, "email"));
+        let first = get(row, "firstName"), last = get(row, "lastName");
+        if (!first && get(row, "fullName")) { const parts = get(row, "fullName").split(/\s+/); first = parts.shift(); last = last || parts.join(" "); }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { bad.push(first || last || get(row, "email") || "שורה ללא מייל"); return; }
+        if (existing.has(email) || seen.has(email)) { dup.push(email); return; }
+        seen.add(email);
+        ok.push({ firstName: first, lastName: last, email, phone: get(row, "phone"), institution: get(row, "institution"),
+          address: get(row, "address") || get(row, "city"), note: get(row, "note"), consentEmail: col.consent >= 0 ? yes(get(row, "consent")) : false,
+          _status: IMP_STATUS(get(row, "status")) });
+      });
+      c.$("iPrev").innerHTML = `<div class="context">
+          <b>${ok.length}</b> נרשמים חדשים לייבוא
+          ${dup.length ? `<div class="small">${dup.length} כבר רשומים להשתלמות (או כפולים בקובץ) – ידולגו</div>` : ""}
+          ${bad.length ? `<details><summary class="small">${bad.length} שורות בלי מייל תקין – ידולגו</summary><div class="small">${bad.map(c.esc).join(" · ")}</div></details>` : ""}
+          <div class="small muted">עמודות שזוהו: ${Object.keys(col).map((k) => ({ firstName: "שם פרטי", lastName: "שם משפחה", fullName: "שם מלא", email: "מייל", phone: "טלפון", institution: "מוסד לימודים", address: "כתובת", city: "יישוב", note: "הערות", consent: "הסכמה לדיוור", status: "סטטוס" })[k]).join(", ")}</div>
+          ${col.status >= 0 ? `<div class="small">לפי עמודת הסטטוס: ${Object.entries(R_STATUS).map(([k, v]) => `${v} ${ok.filter((r) => r._status === k).length}`).join(" · ")}${ok.some((r) => !r._status) ? ` · בלי סטטוס ${ok.filter((r) => !r._status).length}` : ""}</div>` : ""}</div>
+        ${ok.length ? `<div class="table-wrap" style="max-height:220px"><table><thead><tr><th>שם</th><th>מייל</th><th>טלפון</th><th>מוסד</th></tr></thead><tbody>
+          ${ok.slice(0, 50).map((r) => `<tr><td>${c.esc(fullName(r))}</td><td dir="ltr">${c.esc(r.email)}</td><td>${c.esc(r.phone)}</td><td>${c.esc(r.institution)}</td></tr>`).join("")}</tbody></table></div>
+        <div class="field" style="margin-top:10px"><label for="iStatus">${col.status >= 0 ? "סטטוס למי שהתא שלו ריק בעמודת הסטטוס" : "הסטטוס של הנרשמים המיובאים"}</label>
+          <select id="iStatus"><option value="registered">מאושרים (מקבלים גישה לאזור האישי)</option><option value="pending">ממתינים לאישור</option></select></div>
+        <button class="primary" id="iGo">ייבוא ${ok.length} נרשמים</button>` : ""}`;
+      if (c.$("iGo")) c.$("iGo").onclick = async () => {
+        const defStatus = c.$("iStatus").value;
+        c.$("iGo").disabled = true;
+        try {
+          const added = [];
+          for (let i = 0; i < ok.length; i += 200) {
+            const b = writeBatch(db);
+            ok.slice(i, i + 200).forEach(({ _status, ...r }) => {
+              const status = _status || defStatus;
+              const ref = doc(collection(db, "registrations"));
+              b.set(ref, { ...r, status, courseId: course.id, managerEmails: course.managerEmails || [], source: "ייבוא מאקסל",
+                createdAt: serverTimestamp(), ...(status === "registered" ? { approvedAt: serverTimestamp(), approvedBy: c.myEmail() } : {}) });
+              if (status === "registered") b.set(doc(db, "courseAccess", accessId(course.id, r.email)), { courseId: course.id, email: r.email, regId: ref.id });
+              if (status === "registered") added.push({ ...r, id: ref.id });
+            });
+            await b.commit();
+          }
+          c.closeModal(); c.toast(`יובאו ${ok.length} נרשמים`, "good");
+          c.audit("ייבוא נרשמים מאקסל", course.title, `${ok.length} נרשמים`);
+          if (added.length && confirm(`יובאו ${added.length} נרשמים מאושרים. ` + "לשלוח להם עכשיו מייל אישור הרשמה?")) mailApproval(c, course, added);
+        } catch (err) { c.toast("הייבוא נכשל: " + (err.code || err.message), "bad"); c.$("iGo").disabled = false; }
+      };
     };
   });
 }
@@ -659,12 +788,23 @@ function tabAttendance(c, course) {
   const ss = sessionsOf(c, course.id);
   const rs = activeRegs(c, course.id).sort((a, b) => fullName(a).localeCompare(fullName(b), "he"));
   const past = pastSessions(ss);
+  if (!CS.attSess || !ss.some((s) => s.id === CS.attSess)) CS.attSess = (ss.find((s) => s.date === todayIso()) || past.at(-1) || ss[0])?.id || "";
+  const cur = ss.find((s) => s.id === CS.attSess);
+  const here = cur ? rs.filter((r) => r.attendance?.[cur.id]).length : 0;
   c.$("cBody").innerHTML = `
+    ${cur ? `<div class="card"><div class="row space"><h3 style="margin:0">סימון נוכחות</h3>
+        <select id="qSess" style="width:auto" aria-label="בחירת מפגש">${ss.map((s, i) => `<option value="${s.id}" ${s.id === cur.id ? "selected" : ""}>מפגש ${i + 1} · ${dayName(s.date)} ${fmtIso(s.date)}${s.topic ? " · " + c.esc(s.topic) : ""}</option>`).join("")}</select></div>
+      <div class="row space" style="margin:10px 0"><b id="qCount">${here} מתוך ${rs.length} נוכחים</b>
+        ${rs.length ? '<button id="qAll">סימון כולם כנוכחים</button>' : ""}</div>
+      <div class="quick-att">${rs.map((r) => `<label class="qa-row"><input type="checkbox" data-qatt="${r.id}" ${r.attendance?.[cur.id] ? "checked" : ""}>
+        <span>${c.esc(fullName(r))}</span></label>`).join("") || '<p class="muted">אין נרשמים מאושרים</p>'}</div>
+      <p class="small muted" style="margin-bottom:0">משתלמים יכולים גם לסמן בעצמם "אני נוכח/ת" באזור האישי בזמן המפגש – הסימון מופיע כאן אוטומטית.</p></div>` : ""}
     <div class="card"><h3>ייבוא דוח משתתפים מזום</h3>
       <p class="small muted">בזום: Reports ← Usage ← Participants ← Export. המערכת מסמנת נוכחות לפי כתובת המייל, ואם אין התאמה – לפי השם המלא.</p>
       <div class="row"><select id="zSess" style="width:auto" aria-label="מפגש">${ss.map((s, i) => `<option value="${s.id}" ${s.date === todayIso() || (!past.length && i === 0) || (past.at(-1)?.id === s.id) ? "selected" : ""}>מפגש ${i + 1} · ${fmtIso(s.date)}</option>`).join("")}</select>
       <input type="file" id="zFile" accept=".csv,.xlsx,.xls" style="width:auto" aria-label="קובץ דוח זום"></div>
       <div id="zResult"></div></div>
+    <h3>טבלת נוכחות – כל המפגשים</h3>
     <div class="row space" style="margin-bottom:8px"><span class="small muted">לחיצה על משבצת מסמנת או מבטלת נוכחות.</span><button id="attExport">ייצוא ל-Excel</button></div>
     <div class="card" style="padding:0"><div class="table-wrap att-wrap"><table class="att">
       <thead><tr><th>משתתף</th>${ss.map((s, i) => `<th title="${c.esc(s.topic)}">${i + 1}<div class="small muted">${fmtIso(s.date).slice(0, 5)}</div></th>`).join("")}<th>%</th></tr></thead>
@@ -676,6 +816,21 @@ function tabAttendance(c, course) {
     try { await updateDoc(doc(db, "registrations", rid), { ["attendance." + sid]: cb.checked }); }
     catch (e) { c.toast("העדכון נכשל: " + e.code, "bad"); cb.checked = !cb.checked; }
   }));
+  if (cur) {
+    c.$("qSess").onchange = (e) => { CS.attSess = e.target.value; tabAttendance(c, course); };
+    const recount = () => { c.$("qCount").textContent = `${document.querySelectorAll("[data-qatt]:checked").length} מתוך ${rs.length} נוכחים`; };
+    document.querySelectorAll("[data-qatt]").forEach((cb) => (cb.onchange = async () => {
+      recount();
+      try { await updateDoc(doc(db, "registrations", cb.dataset.qatt), { ["attendance." + cur.id]: cb.checked }); }
+      catch (e) { c.toast("העדכון נכשל: " + e.code, "bad"); cb.checked = !cb.checked; recount(); }
+    }));
+    if (c.$("qAll")) c.$("qAll").onclick = async () => {
+      const todo = rs.filter((r) => !r.attendance?.[cur.id]);
+      if (!todo.length) return c.toast("כולם כבר מסומנים");
+      try { const b = writeBatch(db); todo.forEach((r) => b.update(doc(db, "registrations", r.id), { ["attendance." + cur.id]: true })); await b.commit(); c.toast(`סומנו ${todo.length}`, "good"); }
+      catch (e) { c.toast("הסימון נכשל: " + e.code, "bad"); }
+    };
+  }
   c.$("attExport").onclick = () => c.exportXlsx(rs.map((r) => {
     const row = { "שם": fullName(r), "מייל": r.email };
     ss.forEach((s, i) => { row[`${i + 1} (${fmtIso(s.date)})`] = r.attendance?.[s.id] ? "✓" : ""; });
@@ -716,22 +871,40 @@ async function importZoom(c, course, sid, file) {
   } catch (e) { c.toast("הסימון נכשל: " + e.code, "bad"); }
 }
 
-// ---------- הקלטות ----------
+// ---------- הקלטות וחומרי לימוד ----------
+// חומרים: שורה לכל פריט – "כותרת | קישור" (קבצים מעלים ל-Google Drive ומדביקים קישור שיתוף)
+const parseMaterials = (text) => String(text || "").split("\n").map((l) => l.trim()).filter(Boolean).map((l) => {
+  const m = l.match(/^(.*?)\s*[|–-]\s*(https?:\/\/\S+)\s*$/) || l.match(/^()(https?:\/\/\S+)$/);
+  return m ? { title: (m[1] || "").trim() || "קישור", url: m[2] } : null;
+});
+const materialsText = (items) => (items || []).map((x) => `${x.title} | ${x.url}`).join("\n");
+
 async function tabRecordings(c, course) {
   const ss = sessionsOf(c, course.id);
   c.$("cBody").innerHTML = `<p class="muted">טוען...</p>`;
-  let rec = new Map();
-  try { (await getDocs(query(collection(db, "recordings"), where("courseId", "==", course.id)))).forEach((d) => rec.set(d.id, d.data())); }
-  catch (e) { c.toast("טעינת ההקלטות נכשלה: " + e.code, "bad"); }
+  const rec = new Map(), mat = new Map();
+  try {
+    const [r1, r2] = await Promise.all([
+      getDocs(query(collection(db, "recordings"), where("courseId", "==", course.id))),
+      getDocs(query(collection(db, "materials"), where("courseId", "==", course.id)))
+    ]);
+    r1.forEach((d) => rec.set(d.id, d.data())); r2.forEach((d) => mat.set(d.id, d.data()));
+  } catch (e) { c.toast("הטעינה נכשלה: " + e.code, "bad"); }
   if (CS.tab !== "recordings" || CS.courseId !== course.id) return;
   c.$("cBody").innerHTML = `
     <div class="card"><label class="check"><input type="checkbox" id="recOpen" ${course.recordingsOpen ? "checked" : ""}> <span><b>להציג את ההקלטות למשתלמים באזור האישי</b></span></label>
-      <p class="small muted">מומלץ להעלות ליוטיוב כסרטון "לא רשום" (Unlisted) ולהדביק כאן את הקישור.</p></div>
-    <div class="card">${ss.map((s, i) => `<div class="row" style="margin-bottom:8px">
-      <span style="min-width:150px">מפגש ${i + 1} · ${fmtIso(s.date)}</span>
-      <input class="grow" data-rec="${s.id}" value="${c.esc(rec.get(s.id)?.url)}" placeholder="https://youtu.be/..." aria-label="קישור הקלטה למפגש ${i + 1}">
-      ${rec.get(s.id)?.url ? `<a class="btn" href="${c.esc(rec.get(s.id).url)}" target="_blank" rel="noopener">צפייה</a>` : ""}</div>`).join("") || '<p class="muted">אין מפגשים</p>'}
-      ${ss.length ? '<button class="primary" id="recSave">שמירת הקישורים</button>' : ""}</div>`;
+      <p class="small muted">הקלטות: מומלץ להעלות ליוטיוב כסרטון "לא רשום" (Unlisted) ולהדביק כאן את הקישור.<br>
+      חומרי לימוד (מראי מקומות, מצגות, דפי מקורות): מעלים ל-Google Drive, משתפים "כל מי שיש לו את הקישור", ומדביקים כאן – שורה לכל פריט: <b>כותרת | קישור</b>. החומרים מוצגים לנרשמים המאושרים באזור האישי תמיד (גם בלי ההקלטות).</p></div>
+    ${ss.map((s, i) => `<div class="card">
+      <h3 style="margin-top:0">מפגש ${i + 1} · ${dayName(s.date)} ${fmtIso(s.date)}${s.topic ? ` · ${c.esc(s.topic)}` : ""}</h3>
+      <div class="grid2">
+        <div class="field"><label for="rec_${s.id}">קישור להקלטה</label>
+          <div class="row" style="flex-wrap:nowrap"><input class="grow" id="rec_${s.id}" data-rec="${s.id}" value="${c.esc(rec.get(s.id)?.url)}" placeholder="https://youtu.be/..." dir="ltr">
+          ${rec.get(s.id)?.url ? `<a class="btn" href="${c.esc(rec.get(s.id).url)}" target="_blank" rel="noopener">צפייה</a>` : ""}</div></div>
+        <div class="field"><label for="mat_${s.id}">חומרי לימוד (כותרת | קישור)</label>
+          <textarea id="mat_${s.id}" data-mat="${s.id}" style="min-height:70px" placeholder="מראי מקומות | https://drive.google.com/...">${c.esc(materialsText(mat.get(s.id)?.items))}</textarea></div>
+      </div></div>`).join("") || '<div class="card"><p class="muted">אין מפגשים</p></div>'}
+    ${ss.length ? '<button class="primary" id="recSave">שמירה</button>' : ""}`;
   c.$("recOpen").onchange = async (e) => {
     try { await updateDoc(doc(db, "courses", course.id), { recordingsOpen: e.target.checked }); c.toast(e.target.checked ? "ההקלטות גלויות למשתלמים" : "ההקלטות הוסתרו", "good"); }
     catch (err) { c.toast("העדכון נכשל: " + err.code, "bad"); e.target.checked = !e.target.checked; }
@@ -739,7 +912,10 @@ async function tabRecordings(c, course) {
   if (c.$("recSave")) c.$("recSave").onclick = async () => {
     const inputs = [...document.querySelectorAll("[data-rec]")];
     const bad = inputs.find((i) => i.value.trim() && !isUrl(i.value));
-    if (bad) { bad.focus(); return c.toast("אחד הקישורים לא תקין", "bad"); }
+    if (bad) { bad.focus(); return c.toast("אחד הקישורים להקלטה לא תקין", "bad"); }
+    const mats = [...document.querySelectorAll("[data-mat]")];
+    const badM = mats.find((t) => parseMaterials(t.value).includes(null));
+    if (badM) { badM.focus(); return c.toast("בחומרי הלימוד: כל שורה צריכה להיות \"כותרת | קישור\"", "bad"); }
     try {
       const b = writeBatch(db);
       inputs.forEach((i) => {
@@ -747,10 +923,44 @@ async function tabRecordings(c, course) {
         if (url) b.set(doc(db, "recordings", sid), { courseId: course.id, url, updatedAt: serverTimestamp() });
         else if (rec.has(sid)) b.delete(doc(db, "recordings", sid));
       });
-      await b.commit(); c.toast("נשמר", "good"); tabRecordings(c, course);
+      mats.forEach((t) => {
+        const items = parseMaterials(t.value), sid = t.dataset.mat;
+        if (items.length) b.set(doc(db, "materials", sid), { courseId: course.id, items, updatedAt: serverTimestamp() });
+        else if (mat.has(sid)) b.delete(doc(db, "materials", sid));
+      });
+      await b.commit(); c.$("cBody").removeAttribute("data-editing"); c.toast("נשמר", "good"); tabRecordings(c, course);
     } catch (e) { c.toast("השמירה נכשלה: " + e.code, "bad"); }
   };
-  document.querySelectorAll("[data-rec]").forEach((i) => i.addEventListener("input", () => c.$("cBody").setAttribute("data-editing", "1")));
+  document.querySelectorAll("[data-rec], [data-mat]").forEach((i) => i.addEventListener("input", () => c.$("cBody").setAttribute("data-editing", "1")));
+}
+
+// ---------- משוב ----------
+const FB_Q = [["overall", "שביעות רצון כללית"], ["content", "התוכן"], ["lecturers", "המרצים"]];
+async function tabFeedback(c, course) {
+  c.$("cBody").innerHTML = `<p class="muted">טוען...</p>`;
+  let list = [];
+  try { list = (await getDocs(query(collection(db, "feedback"), where("courseId", "==", course.id)))).docs.map((d) => d.data()); }
+  catch (e) { c.toast("הטעינה נכשלה: " + e.code, "bad"); }
+  if (CS.tab !== "feedback" || CS.courseId !== course.id) return;
+  const n = list.length, regs = activeRegs(c, course.id).length;
+  const avg = (k) => { const v = list.map((x) => Number(x[k])).filter((x) => x > 0); return v.length ? (v.reduce((a, b) => a + b, 0) / v.length).toFixed(1) : "—"; };
+  const rec = list.filter((x) => x.recommend === "yes").length;
+  c.$("cBody").innerHTML = `
+    <div class="card">
+      <p class="small muted" style="margin-top:0">${course.feedbackOn !== false ? `אחרי המפגש האחרון נשלח לנרשמים מייל אוטומטי עם בקשה למשוב${course.feedbackSentAt ? ` (נשלח ${c.fmtDate(course.feedbackSentAt)})` : ""}.` : "בקשת המשוב האוטומטית כבויה (אפשר להפעיל בצעד \"פרטים\")."}
+        טופס המשוב מופיע למשתלמים באזור האישי אחרי שההשתלמות מסתיימת.</p>
+      <div class="stats" style="margin:0">
+        <div class="stat"><div class="num">${n}/${regs}</div><div class="lbl">מילאו משוב</div></div>
+        ${FB_Q.map(([k, l]) => `<div class="stat"><div class="num">${avg(k)}</div><div class="lbl">${l} (מתוך 5)</div></div>`).join("")}
+        <div class="stat"><div class="num">${n ? Math.round((rec / n) * 100) + "%" : "—"}</div><div class="lbl">ימליצו לחבר</div></div>
+      </div>
+      ${n ? '<button id="fbExport" style="margin-top:10px">ייצוא ל-Excel</button>' : ""}
+    </div>
+    <h3>הערות המשתתפים</h3>
+    <div class="card">${list.filter((x) => x.comments).map((x) => `<blockquote class="fb-quote">${c.esc(x.comments)}<div class="small muted">— ${c.esc(x.name || "")}</div></blockquote>`).join("") || '<p class="muted">עדיין אין הערות</p>'}</div>`;
+  if (c.$("fbExport")) c.$("fbExport").onclick = () => c.exportXlsx(list.map((x) => ({
+    "שם": x.name || "", "מייל": x.email, ...Object.fromEntries(FB_Q.map(([k, l]) => [l, x[k] || ""])), "ימליץ": x.recommend === "yes" ? "כן" : x.recommend === "no" ? "לא" : "", "הערות": x.comments || "", "תאריך": c.fmtDate(x.at)
+  })), `משוב-${course.title}.xlsx`);
 }
 
 // ---------- צעד 6: פרסום ----------
@@ -774,7 +984,8 @@ function tabPublish(c, course) {
         <button id="lCopy">העתקה</button><a class="btn" href="${c.esc(url)}" target="_blank" rel="noopener">פתיחה</a></div>
       <h3 style="margin-top:14px">הודעה מוכנה לוואטסאפ</h3>
       <textarea id="waMsg" style="min-height:120px">${c.esc(msg)}</textarea>
-      <div class="row"><button id="waCopy">העתקת ההודעה</button><button id="adDl2">הורדת המודעה</button></div></div>`;
+      <div class="row"><button class="primary" id="waShare">שיתוף בוואטסאפ</button><button id="waCopy">העתקת ההודעה</button><button id="adDl2">הורדת המודעה</button></div>
+      <p class="small muted">"שיתוף בוואטסאפ" פותח את וואטסאפ עם ההודעה מוכנה – בוחרים קבוצה או איש קשר. את המודעה מצרפים כתמונה.</p></div>`;
   const setStatus = async (status) => {
     try { await updateDoc(doc(db, "courses", course.id), { status }); c.toast(C_STATUS[status], "good"); }
     catch (e) { c.toast("העדכון נכשל: " + e.code, "bad"); }
@@ -784,6 +995,7 @@ function tabPublish(c, course) {
   if (c.$("pReopen")) c.$("pReopen").onclick = () => setStatus("open");
   if (c.$("pDraft")) c.$("pDraft").onclick = () => { if (confirm("להחזיר לטיוטה? דף ההרשמה לא יהיה גלוי לציבור.")) setStatus("draft"); };
   c.$("lCopy").onclick = async () => { try { await navigator.clipboard.writeText(url); c.toast("הקישור הועתק", "good"); } catch { c.$("lUrl").select(); } };
+  c.$("waShare").onclick = () => window.open("https://wa.me/?text=" + encodeURIComponent(c.$("waMsg").value), "_blank", "noopener");
   c.$("waCopy").onclick = async () => { try { await navigator.clipboard.writeText(c.$("waMsg").value); c.toast("ההודעה הועתקה", "good"); } catch { /* */ } };
   c.$("adDl2").onclick = async () => { try { await makeAd(course, ss, url); } catch { c.toast("יצירת המודעה נכשלה", "bad"); } };
 }

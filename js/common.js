@@ -2,7 +2,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { firebaseConfig, ORG_NAME, TOPICS } from "./config.js?v=20261022";
+import { firebaseConfig, ORG_NAME, TOPICS } from "./config.js?v=20261026";
 
 export { ORG_NAME, TOPICS };
 
@@ -132,3 +132,49 @@ export async function readWorkbook(file) {
   }
   return XLSX.read(buf, { type: "array", cellDates: true });
 }
+
+// ===== טקסט מעוצב (תשובות שו"ת): מודגש, קו תחתון, כותרת, כותרת משנה, רשימות =====
+// רק תגיות מותרות נשמרות, בלי שום מאפיין – כדי שאי אפשר יהיה להחדיר קוד
+const RICH_MAP = { B: "b", STRONG: "b", U: "u", H1: "h3", H2: "h3", H3: "h3", H4: "h4", H5: "h4", H6: "h4", P: "p", DIV: "p", UL: "ul", OL: "ol", LI: "li", BR: "br" };
+export function sanitizeRich(html) {
+  const body = new DOMParser().parseFromString(`<body>${html || ""}</body>`, "text/html").body;
+  const walk = (node) => [...node.childNodes].map((n) => {
+    if (n.nodeType === 3) return esc(n.nodeValue);
+    if (n.nodeType !== 1) return "";
+    const tag = RICH_MAP[n.tagName];
+    if (/^(SCRIPT|STYLE|IFRAME|OBJECT|TEMPLATE)$/.test(n.tagName)) return "";
+    if (tag === "br") return "<br>";
+    // בכרום מודגש/קו תחתון מגיע לפעמים כ-span עם style
+    const st = n.getAttribute?.("style") || "";
+    let inner = walk(n);
+    if (!tag) {
+      if (/font-weight:\s*(bold|[6-9]00)/.test(st)) inner = `<b>${inner}</b>`;
+      if (/text-decoration[^;]*underline/.test(st)) inner = `<u>${inner}</u>`;
+      return inner;
+    }
+    return `<${tag}>${inner}</${tag}>`;
+  }).join("");
+  return walk(body).replace(/<p><\/p>|<p><br><\/p>/g, "<p><br></p>").replace(/(<p><br><\/p>)+$/g, "").trim();
+}
+// טקסט רגיל (קיים) ← HTML
+export const plainToRich = (text) => String(text || "").split(/\n{2,}/).map((p) => `<p>${esc(p).replace(/\n/g, "<br>")}</p>`).join("");
+// HTML ← טקסט רגיל (לחיפוש, לתגיות ולייצוא)
+export function richToText(html, mark = false) {
+  const body = new DOMParser().parseFromString(`<body>${html || ""}</body>`, "text/html").body;
+  const walk = (node) => [...node.childNodes].map((n) => {
+    if (n.nodeType === 3) return n.nodeValue;
+    if (n.nodeType !== 1) return "";
+    const t = n.tagName, inner = walk(n);
+    if (t === "BR") return "\n";
+    if (t === "H3") return `\n${mark ? "### " : ""}${inner.trim()}\n`;
+    if (t === "H4") return `\n${mark ? "#### " : ""}${inner.trim()}\n`;
+    if (t === "LI") return `• ${inner.trim()}\n`;
+    if (t === "P" || t === "UL" || t === "OL") return `${inner}\n`;
+    if (mark && t === "B" && inner.trim()) return `**${inner}**`;
+    if (mark && t === "U" && inner.trim()) return `__${inner}__`;
+    return inner;
+  }).join("");
+  return walk(body).replace(/\n{3,}/g, "\n\n").trim();
+}
+// סימון קל לטקסט מייל (כותרות התשובה הן מתחת ל"## תשובה"): ### כותרת, #### כותרת משנה, **מודגש**, __קו תחתון__
+export const richToMarkup = (html) => richToText(html, true);

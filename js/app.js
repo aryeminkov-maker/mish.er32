@@ -8,11 +8,14 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   db, auth, configReady, esc, normEmail, normPhone, toDate, fmtDate, toast, setupMissingNotice,
-  DEFAULT_TAXONOMY, normTaxonomy, autoTagsFor, readWorkbook
-} from "./common.js?v=20261022";
-import { renderCourses, renderCalendar, courseSummary } from "./courses.js?v=20261022";
-import { renderResearch, researchSummary } from "./research.js?v=20261022";
-import { composeMail, preloadMail, mailConfigured, mailFrom, mailConnected } from "./mail.js?v=20261022";
+  DEFAULT_TAXONOMY, normTaxonomy, autoTagsFor, readWorkbook, sanitizeRich, plainToRich, richToText, richToMarkup
+} from "./common.js?v=20261026";
+import { renderCourses, renderCalendar, courseSummary } from "./courses.js?v=20261026";
+import { renderResearch, researchSummary } from "./research.js?v=20261026";
+import { composeMail, queueMail, schedulerState } from "./mail.js?v=20261026";
+import { renderBooks } from "./books.js?v=20261026";
+import { renderReports } from "./reports.js?v=20261026";
+import { renderSelfTest } from "./selftest.js?v=20261026";
 
 // ---------- קבועים ----------
 const ROLE_LABEL = {
@@ -54,6 +57,10 @@ const S = {
   monthly: new Map(),
   // מיילים מתוזמנים
   mailQueue: new Map(), scheduler: null,
+  // הסרות מרשימת התפוצה (מקישור במייל)
+  optouts: new Set(), optoutDocs: new Map(),
+  // ספרים
+  books: [], bookItems: [], booksDoc: {}, institutions: new Map(), dists: new Map(), orders: new Map(), jgive: new Map(), monthlyAll: null,
   unsub: []
 };
 const $ = (id) => document.getElementById(id);
@@ -125,7 +132,11 @@ async function handleAuth(u) {
   if (role() === "rabbi") S.qf.rabbi = "mine";
   setupNav();
   subscribeAll();
-  preloadMail();
+  // כתובת האתר – בשביל הקישורים שהסקריפט מכניס למיילים (תזכורות, הסרה מרשימת התפוצה)
+  if (can("admin", "head")) {
+    const url = new URL(".", location.href).href;
+    getDoc(doc(db, "settings", "site")).then((d) => { if (d.data()?.url !== url) setDoc(doc(db, "settings", "site"), { url, updatedAt: serverTimestamp() }); }).catch(() => {});
+  }
   go(location.hash.slice(1) || defaultView());
 }
 
@@ -143,6 +154,21 @@ function subscribeAll() {
     const z = snap.exists() ? (snap.data().zoomAccounts || []).filter(Boolean) : [];
     S.resources = { zoomAccounts: z.length ? z : ["חשבון הזום של המכון"] }; dataChanged();
   }, () => {}));
+  S.unsub.push(onSnapshot(doc(db, "settings", "books"), (snap) => {
+    const d = snap.exists() ? snap.data() : {};
+    S.booksDoc = d;
+    // קטלוג (items) – ואם עוד אין, הרשימה הישנה (list)
+    S.bookItems = (d.items || []).filter((b) => b.name);
+    if (!S.bookItems.length && (d.list || []).length) S.bookItems = d.list.filter(Boolean).map((name, i) => ({ id: "b" + i, name, price: 0, forSale: false }));
+    S.books = S.bookItems.map((b) => b.name);
+    dataChanged();
+  }, () => {}));
+  S.unsub.push(onSnapshot(doc(db, "settings", "qaNotify"), (snap) => { S.qaNotify = snap.exists() ? snap.data() : null; }, () => {}));
+  subQ("optouts", collection(db, "optouts"), (snap) => {
+    S.optouts.clear(); S.optoutDocs.clear();
+    snap.forEach((d) => { const e = normEmail(d.data().email); if (!e) return; S.optouts.add(e); if (!S.optoutDocs.has(e)) S.optoutDocs.set(e, []); S.optoutDocs.get(e).push({ id: d.id, ...d.data() }); });
+    dataChanged();
+  });
   sub("allowedEmails", (snap) => { S.users.clear(); snap.forEach((d) => S.users.set(d.id, { id: d.id, email: d.id, ...d.data() })); dataChanged(); });
   if (inGroup(MAIL_ROLES)) {
     const mq = can("admin", "head") ? collection(db, "mailQueue") : query(collection(db, "mailQueue"), where("createdBy", "==", myEmail()));
@@ -195,6 +221,13 @@ function subscribeAll() {
     subQ("registrations", regsQ, (snap) => { S.regs.clear(); snap.forEach((d) => S.regs.set(d.id, { id: d.id, ...d.data() })); S.loaded.regs = true; dataChanged(); });
   }
 
+  if (inGroup(EDIT_ROLES)) {
+    const flag = (k) => (snap) => { S.loaded[k] = true; return snap; };
+    subQ("institutions", collection(db, "institutions"), (snap) => intoMap(S.institutions)(snap));
+    subQ("distributions", collection(db, "distributions"), (snap) => intoMap(S.dists)(snap));
+    subQ("orders", collection(db, "orders"), (snap) => { flag("orders")(snap); intoMap(S.orders)(snap); });
+    subQ("jgiveInbox", collection(db, "jgiveInbox"), (snap) => { flag("jgive")(snap); intoMap(S.jgive)(snap); });
+  }
   if (inGroup(RESEARCH_ROLES)) {
     // חוקר מקבל רק את הרשומות שלו
     const mine = (name) => role() === "researcher" ? query(collection(db, name), where("researcherEmail", "==", myEmail())) : collection(db, name);
@@ -208,6 +241,8 @@ function dataChanged() {
   dataTimer = setTimeout(() => {
     if (S.loaded.contacts && S.loaded.questions) linkPendingQuestions();
     if (S.loaded.contacts && S.loaded.regs && inGroup(EDIT_ROLES)) linkRegistrations();
+    if (S.loaded.contacts && inGroup(EDIT_ROLES)) applyOptouts();
+    if (S.loaded.contacts && S.loaded.orders && S.loaded.jgive && inGroup(EDIT_ROLES)) processJgive();
     refreshView();
   }, 120);
 }
@@ -228,10 +263,70 @@ async function linkPendingQuestions() {
     try {
       const contactId = await findOrCreateContact({
         firstName: q.firstName, lastName: q.lastName, email: q.email, phone: q.phone,
-        consentEmail: q.consentEmail, source: "שו\"ת"
+        consentEmail: q.consentEmail, source: "שו\"ת", fresh: q.origin === "טופס באתר"
       });
       await updateDoc(doc(db, "questions", q.id), { contactId });
     } catch (e) { console.warn("link failed", e); }
+  }
+}
+
+// ---------- Jgive והזמנות ----------
+// כל עדכון מ-Jgive: איש קשר + "תרומה" ב-CRM, ואם הוא תשלום על הזמנה מהחנות (אותו מייל וסכום) – ההזמנה מסומנת "שולמה"
+async function processJgive() {
+  for (const j of S.jgive.values()) {
+    if (j.processed || S.linking.has("j:" + j.id)) continue;
+    S.linking.add("j:" + j.id);
+    try {
+      const [first, ...rest] = String(j.fullName || "").split(/\s+/);
+      const contactId = j.email || j.phone ? await findOrCreateContact({ firstName: j.firstName || first || "", lastName: j.lastName || rest.join(" "), email: j.email, phone: j.phone,
+        consentEmail: j.receiveUpdates ? true : undefined, source: "Jgive" }) : "";
+      const when = toDate(j.date) || toDate(j.receivedAt) || new Date();
+      const order = !j.refunded && [...S.orders.values()].find((o) => o.status === "new" && normEmail(o.email) === normEmail(j.email)
+        && Math.abs(Number(o.total) - Number(j.amount)) < 1 && Math.abs((toDate(o.createdAt)?.getTime() || 0) - when.getTime()) < 7 * 864e5);
+      const upd = { processed: true, processedAt: serverTimestamp(), contactId: contactId || "" };
+      if (order) {
+        await updateDoc(doc(db, "orders", order.id), { status: "paid", paidAt: serverTimestamp(), jgiveId: j.jgiveId || j.id });
+        await recordOrderPurchase({ ...order, status: "paid" }, contactId);
+        upd.orderId = order.id;
+      } else if (contactId) {
+        await addDoc(collection(db, "activities"), { contactId, type: j.refunded ? "note" : "donation", details: j.refunded ? `החזר תרומה ב-Jgive (₪${j.amount})` : [j.purpose, j.comment, j.recurring ? "הוראת קבע" : ""].filter(Boolean).join(" · ") || "תרומה ב-Jgive",
+          amount: j.refunded ? null : Number(j.amount) || null, date: Timestamp.fromDate(when), source: "Jgive", jgiveId: j.jgiveId || j.id, createdBy: S.user.uid, createdAt: serverTimestamp() });
+      } else upd.note = "אין מייל או טלפון – לא נוצר איש קשר";
+      await updateDoc(doc(db, "jgiveInbox", j.id), upd);
+    } catch (e) { console.warn("jgive", e); S.linking.delete("j:" + j.id); }
+  }
+}
+// הזמנה ששולמה: איש קשר + "רכישת ספרים" בהיסטוריה
+async function recordOrderPurchase(o, contactId) {
+  try {
+    const id = contactId || await findOrCreateContact({ firstName: o.firstName, lastName: o.lastName, email: o.email, phone: o.phone, consentEmail: o.consentEmail === true ? true : undefined, source: "חנות הספרים" });
+    await addDoc(collection(db, "activities"), { contactId: id, type: "book_purchase", details: (o.items || []).map((x) => `${x.name}${x.qty > 1 ? ` × ${x.qty}` : ""}`).join(", "),
+      books: (o.items || []).map((x) => x.name), amount: Number(o.total) || null, date: serverTimestamp(), source: "חנות הספרים", orderId: o.id, createdBy: S.user.uid, createdAt: serverTimestamp() });
+    await updateDoc(doc(db, "orders", o.id), { contactId: id });
+  } catch (e) { console.warn("order purchase", e); }
+}
+
+// ---------- יומן שינויים ----------
+// פעולות רגישות (מחיקות, הרשאות, מיזוגים, הגדרות) נרשמות ב-auditLog. רק מנהל מערכת רואה את היומן.
+function audit(action, target = "", details = "") {
+  if (!S.user) return;
+  addDoc(collection(db, "auditLog"), { action, target: String(target || "").slice(0, 200), details: String(details || "").slice(0, 500), by: myEmail(), at: serverTimestamp() }).catch(() => {});
+}
+
+// מי שלחץ "הסרה מרשימת התפוצה" במייל – מסומן בכרטיס "ביקש הסרה"
+function applyOptouts() {
+  for (const [email, docs] of S.optoutDocs) {
+    const id = S.byEmail.get(email);
+    const c = id && S.contacts.get(id);
+    if (!c || c.consentEmail?.status === "removed" || S.linking.has("o:" + id)) continue;
+    const last = docs.map((d) => toDate(d.at)).filter(Boolean).sort((a, b) => b - a)[0] || new Date();
+    // הסכמה חדשה שניתנה אחרי ההסרה גוברת (ואז מסמך ההסרה נמחק)
+    if (c.consentEmail?.status === "yes" && toDate(c.consentEmail.at) > last) continue;
+    S.linking.add("o:" + id);
+    const b = writeBatch(db);
+    b.update(doc(db, "contacts", id), { consentEmail: { status: "removed", at: Timestamp.fromDate(last), source: "הסרה מקישור במייל" } });
+    b.set(doc(collection(db, "activities")), { contactId: id, type: "note", details: "הסיר/ה את עצמו/ה מרשימת התפוצה (קישור במייל)", amount: null, date: Timestamp.fromDate(last), source: "הסרה מדיוור", createdBy: S.user.uid, createdAt: serverTimestamp() });
+    b.commit().then(() => audit("הסרה מדיוור", email)).catch(() => S.linking.delete("o:" + id));
   }
 }
 
@@ -244,7 +339,7 @@ async function linkRegistrations() {
       const course = S.courses.get(r.courseId);
       const contactId = await findOrCreateContact({
         firstName: r.firstName, lastName: r.lastName, email: r.email, phone: r.phone, city: r.city,
-        consentEmail: r.consentEmail, source: "הרשמה להשתלמות"
+        consentEmail: r.consentEmail, source: "הרשמה להשתלמות", fresh: r.source === "טופס באתר"
       });
       await addDoc(collection(db, "activities"), {
         contactId, type: "course", details: course?.title || "השתלמות", amount: null,
@@ -269,8 +364,10 @@ async function findOrCreateContact(d) {
     for (const k of ["firstName", "lastName", "city"]) if (!c[k] && d[k]) upd[k] = d[k];
     if (!c.email && d.email) { upd.email = d.email.trim(); upd.emailKey = normEmail(d.email); }
     if (!c.phone && d.phone) { upd.phone = d.phone.trim(); upd.phoneKey = normPhone(d.phone); }
-    if (d.consentEmail === true && !["yes", "removed"].includes(c.consentEmail?.status)) {
+    if (d.consentEmail === true && (!["yes", "removed"].includes(c.consentEmail?.status) || (d.fresh && c.consentEmail?.status === "removed"))) {
       upd.consentEmail = { status: "yes", at: Timestamp.now(), source: d.source };
+      // אישור חדש בטופס אחרי הסרה – מבטלים את ההסרה
+      if (c.consentEmail?.status === "removed") (S.optoutDocs.get(normEmail(d.email)) || []).forEach((o) => deleteDoc(doc(db, "optouts", o.id)).catch(() => {}));
     }
     if (Object.keys(upd).length) await updateDoc(doc(db, "contacts", existing), upd);
     return existing;
@@ -309,7 +406,8 @@ function defaultView() {
 }
 function go(view) {
   const btn = document.querySelector(`#nav button[data-view="${view}"]`);
-  if (!btn || btn.classList.contains("hidden")) view = defaultView();
+  // "בדיקת הרשאות" – מסך שלא בתפריט, פתוח לכל איש צוות
+  if (view !== "selftest" && (!btn || btn.classList.contains("hidden"))) view = defaultView();
   S.view = view;
   location.hash = view;
   document.querySelectorAll("#nav button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
@@ -324,7 +422,8 @@ function renderView(full) {
   const views = {
     dashboard: renderDashboard, contacts: renderContacts, questions: renderQuestions, import: renderImport,
     users: renderUsers, settings: renderSettings, mail: renderMail,
-    courses: (f) => renderCourses(ctx(), f), calendar: (f) => renderCalendar(ctx(), f), research: (f) => renderResearch(ctx(), f)
+    courses: (f) => renderCourses(ctx(), f), calendar: (f) => renderCalendar(ctx(), f), research: (f) => renderResearch(ctx(), f),
+    books: (f) => renderBooks(ctx(), f), reports: (f) => renderReports(ctx(), f), selftest: (f) => renderSelfTest(ctx(), f)
   };
   (views[S.view] || renderDashboard)(full);
 }
@@ -395,7 +494,7 @@ function exportXlsx(rows, filename) {
 
 // הקשר משותף למודולים (השתלמויות, מחקר)
 function ctx() {
-  return { S, $, esc, toast, openModal, closeModal, exportXlsx, can, inGroup, role, myEmail, userName, fmtDate, toDate,
+  return { S, $, esc, toast, openModal, closeModal, exportXlsx, can, inGroup, role, myEmail, userName, fmtDate, toDate, audit, recordOrderPurchase,
     refresh: () => renderView(true), COURSE_ROLES, RESEARCH_ROLES, EDIT_ROLES };
 }
 
@@ -404,12 +503,24 @@ const sortByDateDesc = (arr, key) => arr.sort((a, b) => (toDate(b[key])?.getTime
 // ======================================================
 // ראשי
 // ======================================================
+// התקנה כאפליקציה (PWA)
+let installPrompt = null;
+addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installPrompt = e; if (S.view === "dashboard") renderDashboard(); });
+const localStorageGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+const localStorageSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* */ } };
+
 function renderDashboard() {
   const parts = [];
   if (inGroup(CRM_ROLES)) parts.push(crmDashboard());
   if (inGroup(COURSE_ROLES)) parts.push(courseSummary(ctx()));
   if (inGroup(RESEARCH_ROLES) && role() !== "researcher") parts.push(researchSummary(ctx()));
+  const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+  if (!standalone && !localStorageGet("hideInstall")) parts.push(`<div class="card install-card"><div class="row space"><div><b>📱 התקנה בטלפון</b>
+    <div class="small muted">${installPrompt ? "המערכת תיפתח כמו אפליקציה, עם אייקון במסך הבית." : /iphone|ipad/i.test(navigator.userAgent) ? "בספארי: כפתור השיתוף ⬆ ← \"הוספה למסך הבית\"." : "בכרום: תפריט ⋮ ← \"התקנת האפליקציה\" / \"הוספה למסך הבית\"."}</div></div>
+    <div class="row">${installPrompt ? '<button class="primary" id="doInstall">התקנה</button>' : ""}<button class="link" id="hideInstall">לא עכשיו</button></div></div></div>`);
   $("main").innerHTML = `<h1>שלום ${esc(S.profile.name || "")}</h1>` + parts.join("");
+  if ($("doInstall")) $("doInstall").onclick = async () => { installPrompt.prompt(); await installPrompt.userChoice.catch(() => {}); installPrompt = null; renderDashboard(); };
+  if ($("hideInstall")) $("hideInstall").onclick = () => { localStorageSet("hideInstall", "1"); renderDashboard(); };
   bindQCards();
   document.querySelectorAll("[data-go]").forEach((b) => (b.onclick = () => go(b.dataset.go)));
 }
@@ -680,7 +791,8 @@ function openContact(id) {
           <div class="grid2" style="margin-top:8px">
             <div class="field"><label>סוג</label><select id="aType">${Object.entries(ACT_TYPES).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div>
             <div class="field"><label>תאריך</label><input id="aDate" type="date" value="${new Date().toISOString().slice(0, 10)}"></div>
-            <div class="field"><label>פרטים</label><input id="aDetails" placeholder="שם ספר, השתלמות, קמפיין..."></div>
+            <div class="field"><label>פרטים</label><input id="aDetails" placeholder="שם ספר, השתלמות, קמפיין..." list="bookNames">
+              <datalist id="bookNames">${S.books.map((b) => `<option value="${esc(b)}">`).join("")}</datalist></div>
             <div class="field"><label>סכום (₪, רשות)</label><input id="aAmount" type="number"></div>
           </div><button id="aAdd">הוספה</button></details>`}
         <ul class="timeline" id="cTimeline"></ul>` : '<p class="muted">ההיסטוריה תופיע אחרי השמירה.</p>'}
@@ -724,6 +836,7 @@ function renderTimeline(id) {
   ul.querySelectorAll("[data-del]").forEach((b) => (b.onclick = async () => {
     if (!confirm("למחוק את הרשומה?")) return;
     await deleteDoc(doc(db, "activities", b.dataset.del));
+    audit("מחיקת רשומת היסטוריה", fullName(S.contacts.get(id) || {}));
     setTimeout(() => renderTimeline(id), 400);
   }));
 }
@@ -765,6 +878,7 @@ async function saveContact(id) {
 async function deleteContact(id) {
   const n = countsOf(id);
   if (!confirm(`למחוק את איש הקשר לצמיתות? יימחקו גם ${(S.actByContact.get(id) || []).length} רשומות היסטוריה. שאלות שו"ת יישמרו בלי שיוך.`)) return;
+  audit("מחיקת איש קשר", fullName(S.contacts.get(id) || {}) + " " + (S.contacts.get(id)?.email || ""));
   const b = writeBatch(db);
   (S.actByContact.get(id) || []).forEach((a) => b.delete(doc(db, "activities", a.id)));
   (S.qByContact.get(id) || []).forEach((q) => b.update(doc(db, "questions", q.id), { contactId: "deleted", firstName: "", lastName: "", email: "", phone: "" }));
@@ -810,6 +924,7 @@ function openDuplicates() {
 async function mergeContacts(ids) {
   const list = ids.map((i) => S.contacts.get(i)).sort((a, b) => (toDate(a.createdAt)?.getTime() || 0) - (toDate(b.createdAt)?.getTime() || 0));
   const [p, ...rest] = list;
+  audit("מיזוג אנשי קשר", list.map((x) => fullName(x) + (x.email ? ` <${x.email}>` : "")).join(" + "));
   const upd = {};
   const tags = new Set(p.tags || []);
   let notes = p.notes || "";
@@ -883,12 +998,12 @@ function renderQuestions(full) {
     </div>
     <div class="card"><div class="row">
       <input id="qText" class="grow" placeholder="חיפוש בשאלות ובתשובות" value="${esc(f.text)}">
-      <select id="qRabbi" style="width:auto">
+      <select id="qRabbi" style="width:auto" aria-label="סינון לפי רב">
         <option value="">כל הרבנים</option><option value="mine">השאלות שלי</option><option value="none">לא שויכו</option>
         ${rabbis().map((r) => `<option value="${r.id}">${esc(userName(r.id))}</option>`).join("")}
       </select>
-      <select id="qTopic" style="width:auto"><option value="">כל הקטגוריות</option>${S.tax.categories.map((t) => `<option>${esc(t)}</option>`).join("")}</select>
-      <select id="qTag" style="width:auto"><option value="">כל התגיות</option>${allTagNames().map((t) => `<option>${esc(t)}</option>`).join("")}</select>
+      <select id="qTopic" style="width:auto" aria-label="סינון לפי קטגוריה"><option value="">כל הקטגוריות</option>${S.tax.categories.map((t) => `<option>${esc(t)}</option>`).join("")}</select>
+      <select id="qTag" style="width:auto" aria-label="סינון לפי תגית"><option value="">כל התגיות</option>${allTagNames().map((t) => `<option>${esc(t)}</option>`).join("")}</select>
     </div></div>
     <div class="qlist" id="qList"></div>`;
   $("qRabbi").value = f.rabbi; $("qTopic").value = f.topic; $("qTag").value = f.tag;
@@ -931,6 +1046,35 @@ function exportQuestions() {
   exportXlsx(rows, "שאלות-שות.xlsx");
 }
 
+// ---------- עורך טקסט מעוצב (תשובות) ----------
+const RTE_BTNS = [["bold", "<b>B</b>", "מודגש (Ctrl+B)"], ["underline", "<u>U</u>", "קו תחתון (Ctrl+U)"], ["h3", "כותרת", "כותרת"], ["h4", "כותרת משנה", "כותרת משנה"],
+  ["p", "טקסט רגיל", "טקסט רגיל"], ["ul", "• רשימה", "רשימה"]];
+function richEditorHtml(id, html, labelId) {
+  return `<div class="rte"><div class="rte-bar" role="toolbar" aria-label="עיצוב טקסט">${RTE_BTNS.map(([k, l, t]) => `<button type="button" data-rte="${k}" title="${t}" aria-label="${t}">${l}</button>`).join("")}</div>
+    <div class="rte-area" id="${id}" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="${labelId}">${html || "<p><br></p>"}</div></div>`;
+}
+function bindRichEditor(id) {
+  const area = $(id), bar = area.previousElementSibling;
+  try { document.execCommand("defaultParagraphSeparator", false, "p"); } catch { /* */ }
+  bar.querySelectorAll("[data-rte]").forEach((b) => {
+    b.onmousedown = (e) => e.preventDefault(); // לא לאבד את הסימון
+    b.onclick = () => {
+      area.focus();
+      const k = b.dataset.rte;
+      if (k === "bold" || k === "underline") document.execCommand(k);
+      else if (k === "ul") document.execCommand("insertUnorderedList");
+      else document.execCommand("formatBlock", false, k.toUpperCase());
+      area.dispatchEvent(new Event("input"));
+    };
+  });
+  // הדבקה מוורד או מאתר – נשאר רק העיצוב המותר
+  area.addEventListener("paste", (e) => {
+    const html = e.clipboardData?.getData("text/html"), text = e.clipboardData?.getData("text/plain");
+    e.preventDefault();
+    document.execCommand("insertHTML", false, html ? sanitizeRich(html) : plainToRich(text || ""));
+  });
+}
+
 function openQuestion(id) {
   const q = S.questions.get(id); if (!q) return;
   const c = q.contactId ? S.contacts.get(q.contactId) : null;
@@ -941,7 +1085,7 @@ function openQuestion(id) {
       <div>
         <p class="small muted">${fmtDate(q.createdAt)} · ${esc(q.topic || "ללא קטגוריה")} · ${esc(q.origin || "")}</p>
         <div class="card pre" style="background:var(--surface-2)">${esc(q.text)}</div>
-        <div class="field"><label>תשובה</label><textarea id="qAnswer" style="min-height:180px">${esc(q.answer)}</textarea></div>
+        <div class="field"><label id="qAnsLbl">תשובה</label>${richEditorHtml("qAnswer", q.answerHtml ? sanitizeRich(q.answerHtml) : plainToRich(q.answer), "qAnsLbl")}</div>
         <div class="grid2">
           <div class="field"><label>רב משיב</label><select id="qRabbiSel"><option value="">לא שויך</option>
             ${rabbis().map((r) => `<option value="${r.id}" ${q.rabbiEmail === r.id ? "selected" : ""}>${esc(userName(r.id))}</option>`).join("")}</select></div>
@@ -952,18 +1096,19 @@ function openQuestion(id) {
             <datalist id="tagNames">${allTagNames().map((t) => `<option value="${esc(t)}">`).join("")}</datalist></div>
         </div>
         <p class="small muted">תגיות אוטומטיות: <span id="qAutoTags">${(q.autoTags || []).map((t) => `<span class="badge brand">${esc(t)}</span>`).join("") || "אין"}</span></p>
-        <details ${q.publish ? "open" : ""} class="card" style="padding:10px 14px">
-          <summary>פרסום במאגר השו"ת הציבורי</summary>
-          <label class="check" style="margin-top:8px"><input type="checkbox" id="qPublish" ${q.publish ? "checked" : ""}> לפרסם בעילום שם</label>
-          <div class="field" style="margin-top:8px"><label>נוסח השאלה לפרסום (הסירו פרטים מזהים)</label>
-            <textarea id="qPublicText">${esc(q.publicText ?? q.text)}</textarea></div>
-          <p class="small muted">התשובה תפורסם כפי שהיא כתובה למעלה.</p>
-        </details>
+        <div class="card publish-box">
+          <h3 style="margin:0 0 6px">פרסום במאגר השו"ת</h3>
+          <div class="field"><label for="qPublicText">נוסח השאלה לפרסום – אפשר לערוך, לקצר ולהסיר פרטים מזהים (השאלה המקורית נשמרת)</label>
+            <textarea id="qPublicText" style="min-height:110px">${esc(q.publicText ?? q.text)}</textarea></div>
+          <div class="row space"><label class="check"><input type="checkbox" id="qPublish" ${q.publish ? "checked" : ""}> <span>לפרסם בעילום שם במאגר</span></label>
+            <button class="link" id="qPubReset">החזרת הנוסח המקורי</button></div>
+          <p class="small muted" style="margin:4px 0 0">התשובה מתפרסמת כפי שהיא כתובה למעלה, כולל העיצוב.</p>
+        </div>
         <div class="row">
           <button class="primary" id="qSave">שמירה</button>
-          <button id="qCopy">העתקת התשובה</button>
-          ${q.email ? `<button id="qMail">שמירה ושליחת התשובה במייל</button>` : ""}
-          ${q.answerSentAt ? `<span class="small muted">התשובה נשלחה ${fmtDate(q.answerSentAt)}</span>` : ""}
+          ${q.email ? `<button class="primary" id="qMail">✉ שליחת התשובה לשואל</button>` : ""}
+          <button id="qCopy">העתקת השאלה והתשובה</button>
+          ${q.answerSentAt ? `<span class="badge good">התשובה נשלחה ${fmtDate(q.answerSentAt)}</span>` : q.email ? "" : '<span class="small muted">אין לשואל כתובת מייל</span>'}
         </div>
       </div>
       <div>
@@ -978,29 +1123,50 @@ function openQuestion(id) {
             <button class="link" data-prevq="${x.id}">${esc((x.text || "").slice(0, 90))}</button></li>`).join("") || '<li class="muted">אין</li>'}</ul>
       </div>
     </div>`, (root) => {
-    $("qSave").onclick = () => saveQuestion(id);
-    $("qCopy").onclick = async () => { await navigator.clipboard.writeText($("qAnswer").value); toast("התשובה הועתקה", "good"); };
-    if ($("qMail")) $("qMail").onclick = async () => {
-      const answer = $("qAnswer").value.trim();
-      if (!answer) return toast("נא לכתוב תשובה לפני השליחה", "bad");
-      $("qStatusSel").value = "answered";
-      const rabbi = userName($("qRabbiSel").value || (can("rabbi") ? myEmail() : ""));
-      if (!(await saveQuestion(id))) return;
-      const cur = S.questions.get(id) || q;
+    bindRichEditor("qAnswer");
+    $("qPubReset").onclick = () => { $("qPublicText").value = q.text || ""; };
+    // שליחת התשובה במייל – עם השאלה, ועם הכותרות וההדגשות של התשובה
+    const sendAnswer = (cur, html) => {
+      const rabbi = userName(cur.rabbiEmail || "");
       composeMail(ctx(), {
         title: "שליחת התשובה לשואל", kind: "qa-answer",
         warning: cur.consentEmail === false ? "השואל לא אישר קבלת דיוור בטופס (וקיבל הודעה שבלי אישור לא יקבל תשובה במייל)." : "",
         recipients: [{ email: cur.email, name: [cur.firstName, cur.lastName].filter(Boolean).join(" "), firstName: cur.firstName, contactId: cur.contactId, ref: id, consent: cur.consentEmail }],
         subject: "תשובה לשאלתך – מכון משפטי ארץ",
-        body: `שלום {שם פרטי},\n\nבתשובה לשאלתך:\n«${cur.text}»\n\n${answer}\n\nבברכה,${rabbi ? "\n" + rabbi : ""}\nמכון משפטי ארץ`,
+        body: `שלום {שם פרטי},\n\n## שאלתך\n${cur.text}\n\n## תשובה\n${richToMarkup(html)}\n\nבברכה,${rabbi ? "\n" + rabbi : ""}\nמכון משפטי ארץ`,
         mark: { collection: "questions", field: "answerSentAt" }
       });
+    };
+    $("qSave").onclick = async () => {
+      const html = sanitizeRich($("qAnswer").innerHTML), st = $("qStatusSel").value;
+      if (!(await saveQuestion(id))) return;
+      const cur = S.questions.get(id) || q;
+      if (st === "answered" && cur.email && !cur.answerSentAt && confirm("התשובה נשמרה. לשלוח אותה עכשיו לשואל במייל?")) sendAnswer({ ...cur, rabbiEmail: $("qRabbiSel")?.value || cur.rabbiEmail }, html);
+    };
+    $("qCopy").onclick = async () => {
+      const html = sanitizeRich($("qAnswer").innerHTML), qt = $("qPublicText").value.trim() || q.text || "";
+      if (!richToText(html)) return toast("עדיין אין תשובה", "bad");
+      const rich = `<div dir="rtl"><h2>שאלה</h2>${plainToRich(qt)}<h2>תשובה</h2>${html}</div>`;
+      const plain = `שאלה\n${qt}\n\nתשובה\n${richToText(html)}`;
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ "text/html": new Blob([rich], { type: "text/html" }), "text/plain": new Blob([plain], { type: "text/plain" }) })]);
+      } catch { await navigator.clipboard.writeText(plain); }
+      toast("השאלה והתשובה הועתקו – עם הכותרות", "good");
+    };
+    if ($("qMail")) $("qMail").onclick = async () => {
+      const html = sanitizeRich($("qAnswer").innerHTML);
+      if (!richToText(html)) return toast("נא לכתוב תשובה לפני השליחה", "bad");
+      $("qStatusSel").value = "answered";
+      const rabbiEmail = $("qRabbiSel").value || (can("rabbi") ? myEmail() : "");
+      if (!(await saveQuestion(id))) return;
+      sendAnswer({ ...(S.questions.get(id) || q), rabbiEmail }, html);
     };
     if ($("qOpenContact")) $("qOpenContact").onclick = () => openContact(q.contactId);
     root.querySelectorAll("[data-prevq]").forEach((b) => (b.onclick = () => openQuestion(b.dataset.prevq)));
     $("qAnswer").addEventListener("input", () => {
-      if ($("qStatusSel").value === "new" && $("qAnswer").value.trim()) $("qStatusSel").value = "in_progress";
-      $("qAutoTags").innerHTML = calcAutoTags(q.text, $("qAnswer").value).map((t) => `<span class="badge brand">${esc(t)}</span>`).join("") || "אין";
+      const txt = $("qAnswer").innerText.trim();
+      if ($("qStatusSel").value === "new" && txt) $("qStatusSel").value = "in_progress";
+      $("qAutoTags").innerHTML = calcAutoTags(q.text, txt).map((t) => `<span class="badge brand">${esc(t)}</span>`).join("") || "אין";
     });
   });
 }
@@ -1009,7 +1175,8 @@ function openQuestion(id) {
 async function saveQuestion(id) {
   const q = S.questions.get(id);
   const status = $("qStatusSel").value;
-  const answer = $("qAnswer").value.trim();
+  const answerHtml = sanitizeRich($("qAnswer").innerHTML);
+  const answer = richToText(answerHtml);
   const publish = $("qPublish").checked;
   const publicText = $("qPublicText").value.trim();
   if (status === "answered" && !answer) { toast("כדי לסמן 'נענתה' צריך לכתוב תשובה", "bad"); return false; }
@@ -1018,15 +1185,16 @@ async function saveQuestion(id) {
   const rabbiEmail = $("qRabbiSel").value || (status !== "new" && can("rabbi") ? myEmail() : "");
   const tags = [...new Set($("qTagsIn").value.split(",").map((t) => t.trim()).filter(Boolean))];
   const autoTags = calcAutoTags(q.text, answer);
-  const upd = { status, answer, rabbiEmail: rabbiEmail || "", topic: $("qTopicSel").value, tags, autoTags, publish, publicText, updatedAt: serverTimestamp() };
+  const upd = { status, answer, answerHtml: answer ? answerHtml : "", rabbiEmail: rabbiEmail || "", topic: $("qTopicSel").value, tags, autoTags, publish, publicText, updatedAt: serverTimestamp() };
   if (status === "answered" && q.status !== "answered") upd.answeredAt = serverTimestamp();
   try {
     await updateDoc(doc(db, "questions", id), upd);
     if (publish) {
-      await setDoc(doc(db, "publicQA", id), { topic: upd.topic, tags: [...new Set([...tags, ...autoTags])], question: publicText, answer, rabbiName: userName(rabbiEmail), publishedAt: q.publish ? (q.publishedAt || serverTimestamp()) : serverTimestamp() });
+      await setDoc(doc(db, "publicQA", id), { topic: upd.topic, tags: [...new Set([...tags, ...autoTags])], question: publicText || q.text, answer, answerHtml: upd.answerHtml, rabbiName: userName(rabbiEmail), publishedAt: q.publish ? (q.publishedAt || serverTimestamp()) : serverTimestamp() });
       if (!q.publish) await updateDoc(doc(db, "questions", id), { publishedAt: serverTimestamp() });
     } else if (q.publish) {
       await deleteDoc(doc(db, "publicQA", id));
+      audit("הסרת שאלה מהמאגר הציבורי", (q.publicText || q.text || "").slice(0, 80));
     }
     toast("נשמר", "good"); closeModal();
     return true;
@@ -1070,15 +1238,48 @@ function openManualQuestion() {
 const IMPORT_FIELDS = [
   ["firstName", "שם פרטי", /פרטי|first/i],
   ["lastName", "שם משפחה", /משפחה|last|surname/i],
-  ["fullName", "שם מלא (עמודה אחת)", /^(שם|שם מלא|name|full ?name|שם התורם|שם הלקוח)$/i],
+  ["fullName", "שם מלא (עמודה אחת)", /^(שם|שם מלא|name|full ?name|שם התורם|שם הלקוח|שם המקבל)$/i],
   ["email", "מייל", /מייל|דוא|e-?mail|mail/i],
   ["phone", "טלפון", /טלפון|נייד|phone|mobile|tel|סלולרי/i],
   ["city", "יישוב", /עיר|יישוב|ישוב|city/i],
   ["date", "תאריך", /תאריך|date/i],
-  ["amount", "סכום", /סכום|amount|sum|total/i],
-  ["details", "פרטים (ספר / השתלמות / קמפיין)", /פרטים|קמפיין|השתלמות|ספר|campaign|details|description|תיאור|פרויקט|מוצר/i],
+  ["amount", "סכום", /סכום|מחיר|amount|sum|total/i],
+  ["details", "פרטים", /פרטים|קמפיין|השתלמות|ספר|campaign|details|description|תיאור|פרויקט|מוצר/i],
+  ["status", "סטטוס הנרשם", /סטטוס|status|מצב/i],
   ["consent", "הסכמה לדיוור", /דיוור|הסכמ|consent|newsletter|marketing|עדכונים/i]
 ];
+// תוויות שמשתנות לפי סוג הקובץ
+const IMP_LABELS = {
+  book_received: { date: "תאריך החלוקה", details: "איזה ספר (עמודה)" },
+  book_purchase: { date: "תאריך הקנייה", details: "אילו ספרים (עמודה)", amount: "סכום ששולם" },
+  course: { date: "תאריך ההרשמה", details: "שם ההשתלמות (עמודה)" },
+  donation: { date: "תאריך התרומה", details: "קמפיין / פרטים" }
+};
+const REG_STATUS_LABEL = { registered: "מאושר", pending: "ממתין לאישור", rejected: "נדחה", cancelled: "ביטל" };
+const statusOf = (v) => {
+  const t = String(v || "").trim();
+  if (!t) return "";
+  if (/ממתין|pending|המתנה/i.test(t)) return "pending";
+  if (/נדח|reject|לא אושר/i.test(t)) return "rejected";
+  if (/בוטל|ביטל|cancel/i.test(t)) return "cancelled";
+  if (/אושר|מאושר|רשום|נרשם|השתתף|registered|approved|כן|v|✓/i.test(t)) return "registered";
+  return "";
+};
+// התאמת שם ספר לרשימת ספרי המכון (חלק מהשם מספיק)
+const nrm = (x) => String(x || "").replace(/["'״׳]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+function matchBooks(value) {
+  const parts = String(value || "").split(/[,;\n/]|\s\+\s/).map((x) => x.trim()).filter(Boolean);
+  return parts.map((p) => {
+    const n = nrm(p);
+    const hit = S.books.find((b) => nrm(b) === n) || S.books.find((b) => nrm(b).includes(n) || n.includes(nrm(b)));
+    return { name: hit || p, known: !!hit };
+  });
+}
+function matchCourse(value) {
+  const n = nrm(value); if (!n) return null;
+  const list = [...S.courses.values()];
+  return list.find((c) => nrm(c.title) === n) || list.find((c) => nrm(c.title).includes(n) || n.includes(nrm(c.title))) || null;
+}
 let IMP = null;
 
 function renderImport(full) {
@@ -1086,40 +1287,81 @@ function renderImport(full) {
   $("main").innerHTML = `
     <h1>ייבוא מאקסל</h1>
     <div class="card medium" style="margin:0 0 16px">
-      <p class="muted">מעלים קובץ Excel או CSV (למשל דוח תרומות מ-Jgive, רשימת משתתפי השתלמות או רשימת מקבלי ספרים). המערכת מזהה אנשים קיימים לפי מייל או טלפון, ולא יוצרת כפילויות.</p>
+      <p class="muted">מעלים קובץ Excel או CSV (רשימת מקבלי ספרים, קונים, נרשמים להשתלמות, דוח תרומות מ-Jgive). המערכת מזהה אנשים קיימים לפי מייל או טלפון, ולא יוצרת כפילויות.</p>
       <div class="grid2">
-        <div class="field"><label>קובץ</label><input type="file" id="impFile" accept=".xlsx,.xls,.csv"></div>
-        <div class="field"><label>מה הקובץ מכיל?</label><select id="impType">
-          <option value="contacts">אנשי קשר בלבד</option>
-          ${Object.entries(ACT_TYPES).filter(([k]) => k !== "note").map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}
+        <div class="field"><label for="impType">מה הקובץ מכיל?</label><select id="impType">
+          ${[["book_received", "חלוקת ספרים"], ["book_purchase", "מכירת ספרים"], ["course", "נרשמים / משתתפים בהשתלמות"], ["donation", "תרומות"], ["contacts", "אנשי קשר בלבד"]]
+            .map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}
         </select></div>
+        <div class="field"><label for="impFile">קובץ</label><input type="file" id="impFile" accept=".xlsx,.xls,.csv"></div>
       </div>
       <div id="impMap"></div>
     </div>`;
   $("impFile").onchange = readImportFile;
+  $("impType").onchange = () => { if (IMP) drawImpMap(); };
 }
 
 async function readImportFile(e) {
   const file = e.target.files[0]; if (!file) return;
-  const wb = await readWorkbook(file);
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
+  let rows;
+  try {
+    const wb = await readWorkbook(file);
+    rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "" });
+  } catch { return toast("לא הצלחתי לקרוא את הקובץ", "bad"); }
   if (!rows.length) return toast("הקובץ ריק", "bad");
-  const headers = Object.keys(rows[0]);
-  IMP = { file: file.name, rows, headers };
-  const guess = (re) => headers.find((h) => re.test(String(h).trim())) || "";
+  IMP = { file: file.name, rows, headers: Object.keys(rows[0]) };
+  drawImpMap();
+}
+
+function drawImpMap() {
+  const { rows, headers } = IMP, type = $("impType").value, L = IMP_LABELS[type] || {};
+  const prev = {}; document.querySelectorAll("#impMap select[data-f]").forEach((s) => (prev[s.dataset.f] = s.value));
+  const guess = (k, re) => (k in prev ? prev[k] : headers.find((h) => re.test(String(h).trim())) || "");
+  const fields = IMPORT_FIELDS.filter(([k]) => (k !== "status" || type === "course") && (type !== "contacts" || !["date", "amount", "details"].includes(k))
+    && (k !== "amount" || ["donation", "book_purchase"].includes(type)));
+  const isBook = type === "book_received" || type === "book_purchase";
+  const courses = [...S.courses.values()].sort((a, b) => (b.startDate || "").localeCompare(a.startDate || ""));
+  const today = new Date().toISOString().slice(0, 10);
   $("impMap").innerHTML = `
     <h3>התאמת עמודות (${rows.length} שורות)</h3>
-    <div class="grid2">${IMPORT_FIELDS.map(([k, label, re]) => `
-      <div class="field"><label>${label}</label><select data-f="${k}"><option value="">— לא קיים —</option>
-        ${headers.map((h) => `<option ${guess(re) === h ? "selected" : ""}>${esc(h)}</option>`).join("")}</select></div>`).join("")}
+    <p class="small muted" style="margin-top:0">לכל שדה בוחרים מאיזו עמודה בקובץ לקחת אותו. מייל או טלפון – חובה.</p>
+    <div class="grid2">${fields.map(([k, label, re]) => `
+      <div class="field"><label>${esc(L[k] || label)}</label><select data-f="${k}"><option value="">— אין בקובץ —</option>
+        ${headers.map((h) => `<option ${guess(k, re) === h ? "selected" : ""}>${esc(h)}</option>`).join("")}</select></div>`).join("")}
     </div>
-    <div class="field"><label>תיאור קבוע לכל השורות (רשות – למשל "השתלמות שמיטה תשפ״ז")</label><input id="impFixed"></div>
+    ${isBook ? `<div class="imp-extra">
+      <h3>${type === "book_received" ? "איזה ספר חולק" : "אילו ספרים נקנו"}</h3>
+      <div class="grid2">
+        <div class="field"><label for="impBook">ספר לכל השורות</label><select id="impBook">
+          <option value="">— לפי העמודה בקובץ —</option>${S.books.map((b) => `<option>${esc(b)}</option>`).join("")}<option value="__other">ספר אחר...</option></select></div>
+        <div class="field hidden" id="impBookOtherBox"><label for="impBookOther">שם הספר</label><input id="impBookOther"></div>
+        <div class="field"><label for="impDate">${type === "book_received" ? "תאריך החלוקה" : "תאריך הקנייה"} (כשאין עמודת תאריך)</label><input type="date" id="impDate" value="${today}"></div>
+      </div>
+      ${S.books.length ? `<p class="small muted">שמות ספרים בעמודה מותאמים אוטומטית לרשימת ספרי המכון (מספיק חלק מהשם). כמה ספרים בתא אחד – מפרידים בפסיק.</p>`
+        : `<p class="small" style="color:var(--warn)">עדיין לא הוגדרה רשימת ספרי המכון. מגדירים אותה ב<b>ספרים ← קטלוג וחנות</b>, ואז אפשר לבחור ספר מהרשימה.</p>`}
+    </div>` : ""}
+    ${type === "course" ? `<div class="imp-extra">
+      <h3>איזו השתלמות</h3>
+      <div class="grid2">
+        <div class="field"><label for="impCourse">השתלמות לכל השורות</label><select id="impCourse">
+          ${courses.map((c) => `<option value="${c.id}">${esc(c.title)}${c.startDate ? " · " + c.startDate.slice(0, 7).split("-").reverse().join("/") : ""}</option>`).join("")}
+          <option value="__col">— לפי עמודת "שם ההשתלמות" בקובץ —</option><option value="__other">השתלמות ישנה שלא במערכת (רק תיעוד)</option></select></div>
+        <div class="field hidden" id="impCourseOtherBox"><label for="impCourseOther">שם ההשתלמות</label><input id="impCourseOther" placeholder="למשל: שמיטה תשפ״ב"></div>
+        <div class="field"><label for="impStatus">סטטוס (כשאין עמודת סטטוס או שהתא ריק)</label><select id="impStatus">
+          ${Object.entries(REG_STATUS_LABEL).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div>
+      </div>
+      <p class="small muted">השתלמות שקיימת במערכת: האנשים נרשמים אליה עם הסטטוס (מאושר = גישה לאזור האישי), ומופיעים בלשונית "נרשמים". מי שכבר רשום אליה – מדולג.
+        ערכים מוכרים בעמודת הסטטוס: מאושר / ממתין / נדחה / ביטל.</p>
+    </div>` : ""}
+    ${type === "donation" ? `<div class="field"><label for="impFixed">תיאור קבוע לכל השורות (רשות – למשל "קמפיין חנוכה תשפ״ז")</label><input id="impFixed"></div>` : ""}
     <div class="table-wrap" style="max-height:220px;margin-bottom:12px"><table>
       <thead><tr>${headers.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead>
       <tbody>${rows.slice(0, 5).map((r) => `<tr>${headers.map((h) => `<td>${esc(r[h] instanceof Date ? fmtDate(r[h]) : r[h])}</td>`).join("")}</tr>`).join("")}</tbody>
     </table></div>
-    <button class="primary" id="impRun">ייבוא</button> <span id="impProgress" class="muted"></span>`;
+    <button class="primary" id="impRun">ייבוא</button> <span id="impProgress" class="muted"></span>
+    <div id="impResult"></div>`;
+  if ($("impBook")) $("impBook").onchange = (e) => $("impBookOtherBox").classList.toggle("hidden", e.target.value !== "__other");
+  if ($("impCourse")) $("impCourse").onchange = (e) => $("impCourseOtherBox").classList.toggle("hidden", e.target.value !== "__other");
   $("impRun").onclick = runImport;
 }
 
@@ -1130,15 +1372,29 @@ async function runImport() {
   document.querySelectorAll("#impMap select[data-f]").forEach((s) => (map[s.dataset.f] = s.value));
   if (!map.email && !map.phone) return toast("חובה לבחור עמודת מייל או טלפון", "bad");
   const type = $("impType").value;
-  const fixed = $("impFixed").value.trim();
+  const isBook = type === "book_received" || type === "book_purchase";
+  const val = (r, k) => (map[k] ? r[map[k]] : "");
+  // ספר קבוע / השתלמות קבועה
+  const fixedBook = isBook ? ($("impBook").value === "__other" ? $("impBookOther").value.trim() : $("impBook").value) : "";
+  if (isBook && $("impBook").value === "__other" && !fixedBook) return toast("נא לכתוב את שם הספר", "bad");
+  if (isBook && !fixedBook && !map.details) return toast("נא לבחור ספר, או עמודה בקובץ שבה כתוב הספר", "bad");
+  const fixedDate = isBook && $("impDate").value ? new Date($("impDate").value + "T12:00") : null;
+  const courseSel = type === "course" ? $("impCourse").value : "";
+  if (type === "course" && courseSel === "__col" && !map.details) return toast('נא לבחור את עמודת "שם ההשתלמות"', "bad");
+  const otherCourse = courseSel === "__other" ? $("impCourseOther").value.trim() : "";
+  if (courseSel === "__other" && !otherCourse) return toast("נא לכתוב את שם ההשתלמות", "bad");
+  if (type === "course" && !courseSel) return toast("נא לבחור השתלמות", "bad");
+  const defStatus = type === "course" ? $("impStatus").value : "";
+  const fixed = $("impFixed")?.value.trim() || "";
   const btn = $("impRun"); btn.disabled = true;
 
   const idxE = new Map(S.byEmail), idxP = new Map(S.byPhone);
+  const regKeys = new Set([...S.regs.values()].map((r) => `${r.courseId}|${normEmail(r.email)}`));
   const pending = new Map(); // contactId -> data (new or updates)
-  let created = 0, updated = 0, acts = 0, skipped = 0;
+  let created = 0, updated = 0, acts = 0, skipped = 0, regsAdded = 0, regsDup = 0;
+  const unknownBooks = new Set(), unknownCourses = new Set(), noEmailForCourse = [];
   let batch = writeBatch(db), ops = 0;
   const flush = async () => { if (ops) { await batch.commit(); batch = writeBatch(db); ops = 0; } };
-  const val = (r, k) => (map[k] ? r[map[k]] : "");
 
   for (const r of IMP.rows) {
     let first = String(val(r, "firstName") || "").trim(), last = String(val(r, "lastName") || "").trim();
@@ -1169,28 +1425,74 @@ async function runImport() {
     if (eK) idxE.set(eK, id);
     if (pK) idxP.set(pK, id);
     if (type !== "contacts") {
-      const d = toDate(val(r, "date"));
+      const d = toDate(val(r, "date")) || fixedDate;
+      const date = d ? Timestamp.fromDate(d) : Timestamp.now();
       const amt = parseFloat(String(val(r, "amount") || "").replace(/[^\d.]/g, ""));
-      batch.set(doc(collection(db, "activities")), {
-        contactId: id, type, details: [fixed, String(val(r, "details") || "").trim()].filter(Boolean).join(" · "),
-        amount: isNaN(amt) ? null : amt, date: d ? Timestamp.fromDate(d) : Timestamp.now(),
-        source: "ייבוא: " + IMP.file, createdBy: S.user.uid, createdAt: serverTimestamp()
-      });
-      ops++; acts++;
+      const act = { contactId: id, type, amount: isNaN(amt) ? null : amt, date, source: "ייבוא: " + IMP.file, createdBy: S.user.uid, createdAt: serverTimestamp() };
+      let writeAct = true;
+      if (isBook) {
+        const books = fixedBook ? [{ name: fixedBook, known: S.books.includes(fixedBook) }] : matchBooks(val(r, "details"));
+        books.filter((b) => !b.known).forEach((b) => unknownBooks.add(b.name));
+        act.books = books.map((b) => b.name);
+        act.details = act.books.join(", ") || "ספרים";
+      } else if (type === "course") {
+        const course = courseSel === "__col" ? matchCourse(val(r, "details")) : courseSel !== "__other" ? S.courses.get(courseSel) : null;
+        const status = statusOf(val(r, "status")) || defStatus;
+        if (course) {
+          act.details = course.title; act.courseId = course.id;
+          if (!eK) noEmailForCourse.push(full || [first, last].join(" ") || phone);
+          else if (regKeys.has(`${course.id}|${eK}`)) { regsDup++; writeAct = false; }
+          else {
+            regKeys.add(`${course.id}|${eK}`);
+            const ref = doc(collection(db, "registrations"));
+            batch.set(ref, { courseId: course.id, email: eK, firstName: first, lastName: last, phone, status, consentEmail: consent === true,
+              managerEmails: course.managerEmails || [], source: "ייבוא: " + IMP.file, contactId: id, createdAt: date }); ops++; regsAdded++;
+            if (status === "registered") { batch.set(doc(db, "courseAccess", `${course.id}_${eK}`), { courseId: course.id, email: eK, regId: ref.id }); ops++; }
+          }
+        } else {
+          const name = courseSel === "__other" ? otherCourse : String(val(r, "details") || "").trim();
+          if (courseSel === "__col" && name) unknownCourses.add(name);
+          act.details = [name || "השתלמות", status && status !== "registered" ? REG_STATUS_LABEL[status] : ""].filter(Boolean).join(" · ");
+        }
+      } else {
+        act.details = [fixed, String(val(r, "details") || "").trim()].filter(Boolean).join(" · ");
+      }
+      if (writeAct) { batch.set(doc(collection(db, "activities")), act); ops++; acts++; }
     }
-    if (ops >= 400) { await flush(); $("impProgress").textContent = `מייבא... ${created + updated} אנשי קשר`; }
+    if (ops >= 380) { await flush(); $("impProgress").textContent = `מייבא... ${created + updated} אנשי קשר`; }
   }
   try {
     await flush();
     $("impProgress").textContent = "";
-    toast(`הייבוא הסתיים: ${created} חדשים, ${updated} עודכנו, ${acts} רשומות היסטוריה, ${skipped} שורות בלי מייל וטלפון דולגו`, "good");
+    const notes = [
+      `<b>${created}</b> אנשי קשר חדשים, <b>${updated}</b> עודכנו, <b>${acts}</b> רשומות היסטוריה.`,
+      regsAdded ? `<b>${regsAdded}</b> נרשמו להשתלמות.` : "", regsDup ? `${regsDup} כבר היו רשומים להשתלמות – דולגו.` : "",
+      skipped ? `${skipped} שורות בלי מייל וטלפון – דולגו.` : "",
+      noEmailForCourse.length ? `${noEmailForCourse.length} בלי מייל – נשמרו בהיסטוריה אבל לא נרשמו להשתלמות (ההרשמה מחייבת מייל): ${noEmailForCourse.slice(0, 15).map(esc).join(", ")}` : "",
+      unknownBooks.size ? `ספרים שלא נמצאו ברשימת ספרי המכון (נשמרו כפי שהם): ${[...unknownBooks].slice(0, 15).map(esc).join(", ")}` : "",
+      unknownCourses.size ? `השתלמויות שלא נמצאו במערכת (נשמרו רק בהיסטוריה): ${[...unknownCourses].slice(0, 15).map(esc).join(", ")}` : ""
+    ].filter(Boolean);
+    const impFile = IMP?.file || ""; IMP = null;
+    audit("ייבוא מאקסל", impFile, `${created} חדשים, ${updated} עודכנו, ${acts} רשומות`);
     renderImport(true);
+    $("impMap").innerHTML = `<div class="context"><b>הייבוא הסתיים</b><ul style="margin:6px 0 0">${notes.map((n) => `<li>${n}</li>`).join("")}</ul></div>`;
+    toast("הייבוא הסתיים", "good");
   } catch (e) { toast("הייבוא נכשל: " + e.code, "bad"); btn.disabled = false; }
 }
 
 // ======================================================
 // משתמשים
 // ======================================================
+async function loadAudit() {
+  let list = [];
+  try { list = (await getDocs(query(collection(db, "auditLog"), orderBy("at", "desc"), limit(200)))).docs.map((d) => d.data()); }
+  catch (e) { const b = $("auditBox"); if (b) b.innerHTML = `<p class="muted" style="padding:12px">לא נטען (${esc(e.code)}) – ייתכן שחוקי האבטחה עוד לא עודכנו.</p>`; return; }
+  const box = $("auditBox"); if (!box) return;
+  box.innerHTML = `<div class="table-wrap" style="max-height:420px"><table><thead><tr><th>מתי</th><th>מי</th><th>פעולה</th><th>על מה</th><th>פרטים</th></tr></thead><tbody>
+    ${list.map((a) => `<tr><td class="nowrap">${toDate(a.at)?.toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" }) || ""}</td><td class="small">${esc(userName(a.by))}</td>
+      <td>${esc(a.action)}</td><td class="small">${esc(a.target)}</td><td class="small muted">${esc(a.details)}</td></tr>`).join("") || '<tr><td colspan="5" class="muted">עדיין אין רשומות</td></tr>'}</tbody></table></div>`;
+}
+
 function renderUsers(full) {
   const keep = full ? null : { e: $("uEmail")?.value, n: $("uName")?.value, r: $("uRole")?.value };
   const users = [...S.users.values()].sort((a, b) => userName(a.id).localeCompare(userName(b.id), "he"));
@@ -1219,7 +1521,12 @@ function renderUsers(full) {
     <div class="card small muted">
       <b>מה כל תפקיד רואה:</b> מנהל מערכת – הכול, כולל משתמשים ומחיקה. רכז הרכזים וצוות – אנשי קשר, שו"ת וייבוא.
       רב משיב – שו"ת ותקציר על השואל, צפייה בלבד בכרטיסי אנשי קשר.
-    </div>`;
+    </div>
+    <div class="row space" style="margin-top:16px"><h2 style="margin:0">יומן שינויים</h2><button data-go="selftest">בדיקת הרשאות</button></div>
+    <p class="small muted">מחיקות, מיזוגים, שינויי הרשאות, ייבוא והגדרות – מי, מה ומתי. אי אפשר לערוך או למחוק את היומן.</p>
+    <div class="card" style="padding:0" id="auditBox"><p class="muted" style="padding:12px">טוען...</p></div>`;
+  loadAudit();
+  document.querySelectorAll("#main [data-go]").forEach((b) => (b.onclick = () => go(b.dataset.go)));
   if (keep?.e != null) { $("uEmail").value = keep.e; $("uName").value = keep.n; $("uRole").value = keep.r; }
   $("uAdd").onclick = async () => {
     const email = normEmail($("uEmail").value);
@@ -1227,16 +1534,17 @@ function renderUsers(full) {
     if (S.users.has(email)) return toast("המייל כבר ברשימה", "bad");
     try {
       await setDoc(doc(db, "allowedEmails", email), { name: $("uName").value.trim(), role: $("uRole").value, addedBy: myEmail(), addedAt: serverTimestamp() });
+      audit("הוספת משתמש", email, ROLE_LABEL[$("uRole").value]);
       toast("נוסף. עכשיו הוא יכול להיכנס עם חשבון ה-Google שלו", "good");
     } catch (e) { toast("ההוספה נכשלה: " + e.code, "bad"); }
   };
   document.querySelectorAll("select[data-email]").forEach((s) => (s.onchange = async () => {
-    try { await updateDoc(doc(db, "allowedEmails", s.dataset.email), { role: s.value }); toast("התפקיד עודכן", "good"); }
+    try { await updateDoc(doc(db, "allowedEmails", s.dataset.email), { role: s.value }); toast("התפקיד עודכן", "good"); audit("שינוי תפקיד", s.dataset.email, ROLE_LABEL[s.value]); }
     catch (e) { toast("העדכון נכשל: " + e.code, "bad"); }
   }));
   document.querySelectorAll("[data-remove]").forEach((b) => (b.onclick = async () => {
     if (!confirm(`להסיר את ${b.dataset.remove}? הגישה שלו תיחסם מיד.`)) return;
-    try { await deleteDoc(doc(db, "allowedEmails", b.dataset.remove)); toast("הוסר"); }
+    try { await deleteDoc(doc(db, "allowedEmails", b.dataset.remove)); toast("הוסר"); audit("הסרת משתמש", b.dataset.remove); }
     catch (e) { toast("ההסרה נכשלה: " + e.code, "bad"); }
   }));
 }
@@ -1272,26 +1580,35 @@ function renderSettings(full) {
     </div>
     <div class="card" style="margin-top:16px">
       <h2>שליחת מיילים</h2>
-      ${mailConfigured() ? `<p>המערכת שולחת מהכתובת <b dir="ltr">${esc(mailFrom())}</b>. ${mailConnected() ? '<span class="badge good">מחובר עכשיו</span>' : ""}</p>
-        <p class="small muted">כדי לשלוח צריך להתחבר בחלון של Google עם החשבון הזה (פעם בשעה בערך).</p>
-        <button id="mailTest">שליחת מייל ניסיון לעצמי</button>`
-      : `<p class="muted">עוד לא הוגדר. ההוראות בקובץ README.md, בפרק "שליחת מיילים".</p>`}
+      ${schedulerState(S.scheduler).ok ? `<p><span class="badge good">סקריפט השליחה פעיל</span>${S.scheduler?.account ? ` · שולח מ-<b dir="ltr">${esc(S.scheduler.account)}</b>` : ""}</p>`
+        : `<div class="conflict-box">${esc(schedulerState(S.scheduler).text)}</div>`}
+      <p class="small muted">כל המיילים נשלחים מחשבון ה-Gmail של המכון על ידי הסקריפט, תוך כמה דקות. בכל מייל יש קישור להסרה מרשימת התפוצה. ${S.optouts.size ? `עד היום ${S.optouts.size} כתובות הוסרו.` : ""}</p>
+      <button id="mailTest">שליחת מייל ניסיון לעצמי</button>
     </div>
+    ${can("admin", "head") ? qaNotifyCard() : ""}
+    ${can("admin") ? `<div class="card" style="margin-top:16px">
+      <h2>גיבוי</h2>
+      <p class="small">${toDate(S.scheduler?.lastBackup) ? `גיבוי אוטומטי אחרון: <b>${toDate(S.scheduler.lastBackup).toLocaleString("he-IL")}</b> – בתיקייה "גיבוי מערכת משפטי ארץ" ב-Google Drive של חשבון המכון (12 הגיבויים האחרונים נשמרים).`
+        : "הגיבוי האוטומטי (כל יום ראשון בלילה, ל-Google Drive של חשבון המכון) עוד לא רץ – הוא מופעל עם התקנת הסקריפט."}</p>
+      <div class="row"><button id="bkXlsx">הורדת גיבוי מלא עכשיו (Excel)</button><button id="bkJson">הורדה כקובץ JSON</button><span id="bkMsg" class="small muted"></span></div>
+    </div>` : ""}
     <div class="card" style="margin-top:16px">
       <h2>חשבונות זום (להתראות התנגשות)</h2>
       <p class="small muted">חשבון בכל שורה. אם שני מפגשים חופפים משתמשים באותו חשבון, לוח השנה יתריע.</p>
-      <textarea id="zoomAccounts" style="min-height:90px">${esc(S.resources.zoomAccounts.join("\n"))}</textarea>
+      <textarea id="zoomAccounts" style="min-height:90px" aria-label="חשבונות זום">${esc(S.resources.zoomAccounts.join("\n"))}</textarea>
       <button id="saveZoom" style="margin-top:8px">שמירת חשבונות</button>
     </div>`;
-  if ($("mailTest")) $("mailTest").onclick = () => composeMail(ctx(), {
+  $("mailTest").onclick = () => composeMail(ctx(), {
     title: "מייל ניסיון", kind: "test",
     recipients: [{ email: myEmail(), name: S.profile.name || "", firstName: (S.profile.name || "").split(" ")[0] }],
     subject: "בדיקת שליחה ממערכת משפטי ארץ", body: "שלום {שם פרטי},\n\nזה מייל ניסיון. אם קיבלת אותו – השליחה מהמערכת עובדת.\n\nמכון משפטי ארץ"
   });
+  if ($("qnSave")) bindQaNotify();
+  if ($("bkXlsx")) { $("bkXlsx").onclick = () => fullBackup("xlsx"); $("bkJson").onclick = () => fullBackup("json"); }
   $("saveZoom").onclick = async () => {
     const list = [...new Set($("zoomAccounts").value.split("\n").map((x) => x.trim()).filter(Boolean))];
     if (!list.length) return toast("צריך לפחות חשבון אחד", "bad");
-    try { await setDoc(doc(db, "settings", "resources"), { zoomAccounts: list, updatedAt: serverTimestamp() }); toast("נשמר", "good"); }
+    try { await setDoc(doc(db, "settings", "resources"), { zoomAccounts: list, updatedAt: serverTimestamp() }); toast("נשמר", "good"); audit("עדכון חשבונות זום", list.join(", ")); }
     catch (e) { toast("השמירה נכשלה: " + e.code, "bad"); }
   };
   drawSettingsLists();
@@ -1344,6 +1661,7 @@ async function saveSettings() {
   const data = normTaxonomy({ categories: cats, defaultCategory: SET.defaultCategory, tags: SET.tags });
   try {
     await setDoc(doc(db, "settings", "taxonomy"), { ...data, updatedBy: myEmail(), updatedAt: serverTimestamp() });
+    audit("עדכון קטגוריות ותגיות");
     S.tax = data;
     toast("ההגדרות נשמרו", "good");
     renderSettings(true);
@@ -1373,10 +1691,74 @@ async function retagAll() {
 }
 
 
+// ---------- גיבוי ידני (מנהל מערכת) ----------
+const BACKUP_COLS = ["contacts", "activities", "questions", "publicQA", "allowedEmails", "savedLists", "courses", "sessions", "sessionPrivate", "recordings", "materials",
+  "registrations", "courseAccess", "feedback", "monthly", "settings", "optouts", "orders", "institutions", "distributions", "jgiveInbox", "mailQueue", "auditLog"];
+async function fullBackup(kind) {
+  const out = {};
+  for (const [i, name] of BACKUP_COLS.entries()) {
+    $("bkMsg").textContent = `טוען ${i + 1}/${BACKUP_COLS.length}: ${name}`;
+    try { out[name] = (await getDocs(collection(db, name))).docs.map((d) => ({ _id: d.id, ...d.data() })); } catch (e) { out[name] = []; }
+  }
+  const plain = (v) => (v?.toDate ? v.toDate().toISOString() : v instanceof Date ? v.toISOString() : v);
+  const deep = (o) => JSON.parse(JSON.stringify(o, (k, v) => (v && typeof v === "object" && typeof v.toDate === "function" ? v.toDate().toISOString() : v)));
+  const stamp = new Date().toISOString().slice(0, 10);
+  if (kind === "json") {
+    const blob = new Blob([JSON.stringify(deep(out), null, 1)], { type: "application/json" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `גיבוי-משפטי-ארץ-${stamp}.json`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+  } else {
+    const wb = XLSX.utils.book_new(); wb.Workbook = { Views: [{ RTL: true }] };
+    for (const [name, rows] of Object.entries(out)) {
+      const flat = rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => { v = plain(v); return [k, v && typeof v === "object" ? JSON.stringify(deep(v)).slice(0, 32000) : v]; })));
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(flat.length ? flat : [{ "": "ריק" }]), name.slice(0, 31));
+    }
+    const blob = new Blob([XLSX.write(wb, { bookType: "xlsx", type: "array" })], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `גיבוי-משפטי-ארץ-${stamp}.xlsx`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+  }
+  $("bkMsg").textContent = `הגיבוי ירד: ${Object.values(out).reduce((a, r) => a + r.length, 0)} רשומות`;
+  audit("גיבוי ידני", kind);
+}
+
+// ---------- התראות שו"ת (נשלחות על ידי הסקריפט) ----------
+function qaNotifyCard() {
+  const n = S.qaNotify || {};
+  const people = [...S.users.values()].filter((u) => ["rabbi", "head", "admin", "staff"].includes(u.role)).sort((a, b) => userName(a.id).localeCompare(userName(b.id), "he"));
+  const checks = (name, sel) => people.map((u) => `<label class="check"><input type="checkbox" data-${name}="${esc(u.id)}" ${(sel || []).includes(u.id) ? "checked" : ""}> <span>${esc(userName(u.id))} <span class="small muted">(${ROLE_LABEL[u.role]})</span></span></label>`).join("");
+  return `<div class="card" style="margin-top:16px">
+    <h2>התראות שו"ת במייל</h2>
+    <label class="check"><input type="checkbox" id="qnNew" ${n.notifyNew !== false && S.qaNotify ? "checked" : ""}> <span><b>מייל על כל שאלה חדשה</b> – לרב של הקטגוריה (או לרשימה למטה)</span></label>
+    <label class="check"><input type="checkbox" id="qnRemind" ${n.remind !== false && S.qaNotify ? "checked" : ""}> <span><b>תזכורת על שאלה שלא נענתה</b> אחרי</span>
+      <input type="number" id="qnDays" min="1" max="30" value="${n.remindDays || 3}" style="width:70px" aria-label="מספר ימים"> <span>ימים (ושוב כל אותו מספר ימים)</span></label>
+    <div class="grid2" style="margin-top:10px">
+      <div><h3>מי מקבל (ברירת מחדל)</h3>${checks("qnto", n.emails) || '<p class="muted small">אין רבנים ברשימת המשתמשים</p>'}</div>
+      <div><h3>עותק מכל תזכורת גם ל:</h3>${checks("qncc", n.remindAlso)}</div>
+    </div>
+    <h3 style="margin-top:10px">רב לפי קטגוריה (רשות)</h3>
+    <p class="small muted" style="margin-top:0">שאלה שכבר שויכה לרב – ההתראות הולכות אליו. אחרת – לרב של הקטגוריה, ואם אין – לברירת המחדל.</p>
+    <div class="grid2">${S.tax.categories.map((cat) => `<div class="field"><label>${esc(cat)}</label><select data-qncat="${esc(cat)}" aria-label="רב לקטגוריה ${esc(cat)}"><option value="">ברירת המחדל</option>
+      ${people.map((u) => `<option value="${esc(u.id)}" ${(n.byCategory?.[cat] || [])[0] === u.id ? "selected" : ""}>${esc(userName(u.id))}</option>`).join("")}</select></div>`).join("")}</div>
+    <button id="qnSave">שמירת הגדרות ההתראות</button>
+    <p class="small muted">ההתראות חלות על שאלות שמגיעות מרגע השמירה הראשונה (לא על שאלות ישנות).</p>
+  </div>`;
+}
+function bindQaNotify() {
+  $("qnSave").onclick = async () => {
+    const picked = (name) => [...document.querySelectorAll(`[data-${name}]:checked`)].map((x) => x.getAttribute(`data-${name}`));
+    const byCategory = {};
+    document.querySelectorAll("[data-qncat]").forEach((sel) => { if (sel.value) byCategory[sel.dataset.qncat] = [sel.value]; });
+    const data = { notifyNew: $("qnNew").checked, remind: $("qnRemind").checked, remindDays: Math.max(1, Number($("qnDays").value) || 3),
+      emails: picked("qnto"), remindAlso: picked("qncc"), byCategory, updatedBy: myEmail(), updatedAt: serverTimestamp() };
+    if (!S.qaNotify?.enabledAt) data.enabledAt = serverTimestamp();
+    if ((data.notifyNew || data.remind) && !data.emails.length && !Object.keys(byCategory).length) return toast("נא לבחור לפחות נמען אחד", "bad");
+    try { await setDoc(doc(db, "settings", "qaNotify"), data, { merge: true }); toast("נשמר", "good"); audit("עדכון התראות שו\"ת"); }
+    catch (e) { toast("השמירה נכשלה: " + e.code, "bad"); }
+  };
+}
+
 // ======================================================
 // מיילים מתוזמנים ויומן שליחות
 // ======================================================
-const JOB_STATUS = { scheduled: "מתוזמן", sending: "בשליחה", sent: "נשלח", partial: "נשלח חלקית", failed: "נכשל", cancelled: "בוטל" };
+const JOB_STATUS = { scheduled: "ממתין בתור", sending: "בשליחה", sent: "נשלח", partial: "נשלח חלקית", failed: "נכשל", cancelled: "בוטל" };
 const JOB_BADGE = { scheduled: "info", sending: "warn", sent: "good", partial: "warn", failed: "bad", cancelled: "" };
 let mailLogCache = null;
 
@@ -1388,13 +1770,13 @@ function renderMail(full) {
   $("main").innerHTML = `
     <h1>מיילים</h1>
     <div class="card">
-      ${alive ? `<span class="badge good">המתזמן פעיל</span> <span class="small muted">בדיקה אחרונה: ${lastRun.toLocaleString("he-IL")}</span>`
-        : `<div class="conflict-box"><b>המתזמן לא פעיל.</b> מיילים מתוזמנים לא יישלחו עד שיוגדר הסקריפט בחשבון ה-Gmail של המכון (README, פרק "מיילים מתוזמנים").
-          ${lastRun ? `<div class="small">בדיקה אחרונה: ${lastRun.toLocaleString("he-IL")}</div>` : ""}</div>`}
-      ${S.scheduler?.lastError ? `<div class="small" style="color:var(--bad)">שגיאה אחרונה של המתזמן: ${esc(S.scheduler.lastError)}</div>` : ""}
-      <p class="small muted" style="margin-bottom:0">מתזמנים מייל מכל חלון שליחה (שו"ת, השתלמויות, אנשי קשר) – בבחירה "לתזמן ל:". ${can("admin", "head") ? "כאן מוצגים כל המיילים המתוזמנים." : "כאן מוצגים המיילים שאת/ה תזמנת."}</p>
+      ${alive ? `<span class="badge good">סקריפט השליחה פעיל</span> <span class="small muted">ריצה אחרונה: ${lastRun.toLocaleString("he-IL")}</span>`
+        : `<div class="conflict-box"><b>סקריפט השליחה לא פעיל.</b> המיילים מחכים בתור ולא יישלחו עד שהסקריפט יותקן בחשבון ה-Gmail של המכון (README, פרק "שליחת מיילים").
+          ${lastRun ? `<div class="small">ריצה אחרונה: ${lastRun.toLocaleString("he-IL")}</div>` : ""}</div>`}
+      ${S.scheduler?.lastError ? `<div class="small" style="color:var(--bad)">שגיאה אחרונה: ${esc(S.scheduler.lastError)}</div>` : ""}
+      <p class="small muted" style="margin-bottom:0">כל מייל שנשלח מהמערכת נכנס לתור, והסקריפט שולח אותו תוך כמה דקות (או במועד שנקבע). ${can("admin", "head") ? "כאן מוצגים כל המיילים." : "כאן מוצגים המיילים ששלחת."}</p>
     </div>
-    <h2>מתוזמנים ${upcoming.length ? `(${upcoming.length})` : ""}</h2>
+    <h2>בתור ${upcoming.length ? `(${upcoming.length})` : ""}</h2>
     <div class="card" style="padding:0"><div class="table-wrap"><table>
       <thead><tr><th>מועד</th><th>נושא</th><th>נמענים</th><th>סטטוס</th><th>נוצר על ידי</th><th></th></tr></thead>
       <tbody>${jobs.map((j) => `<tr>
@@ -1406,10 +1788,10 @@ function renderMail(full) {
           ${(j.failed || []).length ? `<details><summary class="small">${j.failed.length} נכשלו</summary><div class="small">${j.failed.map(esc).join("<br>")}</div></details>` : ""}</td>
         <td class="small">${esc(userName(j.createdBy))}</td>
         <td>${j.status === "scheduled" ? `<button class="link" data-viewjob="${j.id}">תצוגה</button> <button class="link danger" data-canceljob="${j.id}">ביטול</button>` : `<button class="link" data-viewjob="${j.id}">תצוגה</button>`}</td></tr>`).join("")
-        || '<tr><td colspan="6" class="muted">אין מיילים מתוזמנים</td></tr>'}</tbody></table></div></div>
+        || '<tr><td colspan="6" class="muted">אין מיילים</td></tr>'}</tbody></table></div></div>
     ${can("admin", "head") ? `<h2>יומן שליחות</h2><div class="card" style="padding:0" id="mailLogBox"><p class="muted" style="padding:12px">טוען...</p></div>` : ""}`;
   document.querySelectorAll("[data-canceljob]").forEach((b) => (b.onclick = async () => {
-    if (!confirm("לבטל את המייל המתוזמן?")) return;
+    if (!confirm("לבטל את המייל?")) return;
     try { await updateDoc(doc(db, "mailQueue", b.dataset.canceljob), { status: "cancelled", cancelledAt: serverTimestamp(), cancelledBy: myEmail() }); toast("בוטל"); }
     catch (e) { toast("הביטול נכשל (ייתכן שהשליחה כבר התחילה): " + e.code, "bad"); }
   }));
