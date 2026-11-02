@@ -2,8 +2,8 @@
 import {
   collection, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, writeBatch, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { db, normEmail, readWorkbook } from "./common.js?v=20261026";
-import { todayIso, fmtIso, uid, norm } from "./util.js?v=20261026";
+import { db, normEmail, readWorkbook } from "./common.js?v=20261027";
+import { todayIso, fmtIso, uid, norm } from "./util.js?v=20261027";
 
 const BS = { tab: "dist", book: "", search: "", missing: false, orderStatus: "open" };
 export const ORDER_STATUS = { new: "ממתינה לתשלום", paid: "שולמה", shipped: "נשלחה", cancelled: "בוטלה" };

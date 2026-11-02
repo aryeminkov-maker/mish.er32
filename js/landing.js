@@ -3,8 +3,8 @@ import {
   collection, doc, getDoc, getDocs, addDoc, query, where, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { db, auth, configReady, esc, toast, setupMissingNotice, normEmail } from "./common.js?v=20261026";
-import { fmtIso, dayName, regFieldMode } from "./util.js?v=20261026";
+import { db, auth, configReady, esc, toast, setupMissingNotice, normEmail } from "./common.js?v=20261027";
+import { fmtIso, dayName, regFieldMode } from "./util.js?v=20261027";
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);

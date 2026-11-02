@@ -2,7 +2,7 @@
 // הקטלוג נקרא מ-settings/books. ההזמנה נשמרת ב-orders, והתשלום נעשה ב-Jgive.
 // כש-Jgive מעדכן את המערכת על תשלום באותו מייל ובאותו סכום – ההזמנה מסומנת "שולמה" אוטומטית.
 import { collection, doc, getDoc, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { db, configReady, esc, toast, setupMissingNotice, normEmail } from "./common.js?v=20261026";
+import { db, configReady, esc, toast, setupMissingNotice, normEmail } from "./common.js?v=20261027";
 
 const $ = (id) => document.getElementById(id);
 let BOOKS = [], CFG = {};

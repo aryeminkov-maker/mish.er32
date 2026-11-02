@@ -5,7 +5,7 @@
 import {
   collection, doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, query, limit, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { db } from "./common.js?v=20261026";
+import { db } from "./common.js?v=20261027";
 
 const ALL = ["admin", "head", "staff", "rabbi", "course_manager", "research_coord", "researcher"];
 const STAFF = ["admin", "head", "staff", "rabbi"], EDIT = ["admin", "head", "staff"];
@@ -24,6 +24,8 @@ const PROBES = [
   ["קריאת הזמנות מהחנות", EDIT, list("orders")],
   ["קריאת מוסדות", STAFF, list("institutions")],
   ["קריאת עדכוני Jgive", EDIT, list("jgiveInbox")],
+  ["קריאת כל הפרויקטים", ["admin"], list("mgmtProjects")],
+  ["פתיחת פרויקט", ["admin"], async () => { const r = doc(db, "mgmtProjects", tid()); await setDoc(r, { title: "בדיקה", sharedWith: [] }); await deleteDoc(r); }],
   ["קריאת כתובת ה-Webhook הסודית", ["admin"], () => getDoc(doc(db, "private", "jgive"))],
   ["קריאת רשימת מי שהסיר את עצמו מדיוור", ALL, list("optouts")],
   ["קריאת מזהי ההסרה הסודיים (אסור לכולם)", [], list("unsubTokens")],

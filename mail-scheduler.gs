@@ -303,7 +303,7 @@ function qaNotifications_(site) {
 }
 
 // ---------- גיבוי שבועי ל-Google Drive ----------
-const BACKUP_COLLECTIONS = ["contacts", "activities", "questions", "publicQA", "allowedEmails", "savedLists", "courses", "sessions", "sessionPrivate",
+const BACKUP_COLLECTIONS = ["mgmtProjects", "contacts", "activities", "questions", "publicQA", "allowedEmails", "savedLists", "courses", "sessions", "sessionPrivate",
   "recordings", "materials", "registrations", "courseAccess", "courseMedia", "feedback", "monthly", "settings", "optouts", "orders", "institutions",
   "distributions", "jgiveInbox", "auditLog", "mailLog"];
 function weeklyBackup() {

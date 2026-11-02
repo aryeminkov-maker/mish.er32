@@ -1,6 +1,6 @@
 // Service Worker – מאפשר להתקין את המערכת בטלפון כמו אפליקציה.
 // קודם מהרשת (תמיד הגרסה העדכנית), ואם אין חיבור – מהעותק השמור. נתונים מ-Firebase לא נשמרים כאן.
-const CACHE = "me-v20261026";
+const CACHE = "me-v20261027";
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(["./", "index.html", "my.html", "css/style.css", "img/logo.png", "img/icon-192.png"]).catch(() => {})));
   self.skipWaiting();

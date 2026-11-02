@@ -394,3 +394,10 @@ details.qa .ans.rich { white-space: normal; }
 .report-table td, .report-table th { text-align: center; white-space: nowrap; }
 .report-table th[scope=row] { text-align: right; font-weight: 500; }
 .report-table tr.sec th { text-align: right; background: var(--surface-2); color: var(--gold-ink); }
+
+/* ===== פרויקטים ===== */
+.next-step-box { background: var(--brand-soft); border-right: 4px solid var(--gold); border-radius: 8px; padding: 10px 14px; margin: 8px 0 12px; }
+.ms-row { margin-bottom: 6px; gap: 8px; align-items: center; }
+.ms-row input[type=checkbox] { width: 20px; height: 20px; flex: none; }
+.share-list { max-height: 200px; overflow: auto; margin-top: 6px; }
+.pj-table td { vertical-align: top; }

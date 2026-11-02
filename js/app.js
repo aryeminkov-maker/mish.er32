@@ -9,13 +9,14 @@ import {
 import {
   db, auth, configReady, esc, normEmail, normPhone, toDate, fmtDate, toast, setupMissingNotice,
   DEFAULT_TAXONOMY, normTaxonomy, autoTagsFor, readWorkbook, sanitizeRich, plainToRich, richToText, richToMarkup
-} from "./common.js?v=20261026";
-import { renderCourses, renderCalendar, courseSummary } from "./courses.js?v=20261026";
-import { renderResearch, researchSummary } from "./research.js?v=20261026";
-import { composeMail, queueMail, schedulerState } from "./mail.js?v=20261026";
-import { renderBooks } from "./books.js?v=20261026";
-import { renderReports } from "./reports.js?v=20261026";
-import { renderSelfTest } from "./selftest.js?v=20261026";
+} from "./common.js?v=20261027";
+import { renderCourses, renderCalendar, courseSummary } from "./courses.js?v=20261027";
+import { renderResearch, researchSummary } from "./research.js?v=20261027";
+import { composeMail, queueMail, schedulerState } from "./mail.js?v=20261027";
+import { renderBooks } from "./books.js?v=20261027";
+import { renderReports } from "./reports.js?v=20261027";
+import { renderSelfTest } from "./selftest.js?v=20261027";
+import { renderProjects } from "./projects.js?v=20261027";
 
 // ---------- קבועים ----------
 const ROLE_LABEL = {
@@ -55,6 +56,8 @@ const S = {
   courses: new Map(), sessions: new Map(), regs: new Map(), resources: { zoomAccounts: ["חשבון הזום של המכון"] },
   // מחקר
   monthly: new Map(),
+  // סטטוס פרויקטים (מנהל מערכת + שיתופים)
+  projects: new Map(),
   // מיילים מתוזמנים
   mailQueue: new Map(), scheduler: null,
   // הסרות מרשימת התפוצה (מקישור במייל)
@@ -228,6 +231,14 @@ function subscribeAll() {
     subQ("orders", collection(db, "orders"), (snap) => { flag("orders")(snap); intoMap(S.orders)(snap); });
     subQ("jgiveInbox", collection(db, "jgiveInbox"), (snap) => { flag("jgive")(snap); intoMap(S.jgive)(snap); });
   }
+  // פרויקטים: מנהל מערכת רואה הכול; איש צוות – רק פרויקטים ששותפו איתו
+  const pq = can("admin") ? collection(db, "mgmtProjects") : query(collection(db, "mgmtProjects"), where("sharedWith", "array-contains", myEmail()));
+  S.unsub.push(onSnapshot(pq, (snap) => {
+    S.projects.clear(); snap.forEach((d) => S.projects.set(d.id, { id: d.id, ...d.data() }));
+    const nb = document.querySelector('#nav button[data-view="projects"]');
+    if (nb) nb.classList.toggle("hidden", !can("admin") && !S.projects.size);
+    dataChanged();
+  }, () => {}));
   if (inGroup(RESEARCH_ROLES)) {
     // חוקר מקבל רק את הרשומות שלו
     const mine = (name) => role() === "researcher" ? query(collection(db, name), where("researcherEmail", "==", myEmail())) : collection(db, name);
@@ -407,7 +418,7 @@ function defaultView() {
 function go(view) {
   const btn = document.querySelector(`#nav button[data-view="${view}"]`);
   // "בדיקת הרשאות" – מסך שלא בתפריט, פתוח לכל איש צוות
-  if (view !== "selftest" && (!btn || btn.classList.contains("hidden"))) view = defaultView();
+  if (view !== "selftest" && !(view === "projects" && S.projects.size) && (!btn || btn.classList.contains("hidden"))) view = defaultView();
   S.view = view;
   location.hash = view;
   document.querySelectorAll("#nav button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
@@ -423,7 +434,7 @@ function renderView(full) {
     dashboard: renderDashboard, contacts: renderContacts, questions: renderQuestions, import: renderImport,
     users: renderUsers, settings: renderSettings, mail: renderMail,
     courses: (f) => renderCourses(ctx(), f), calendar: (f) => renderCalendar(ctx(), f), research: (f) => renderResearch(ctx(), f),
-    books: (f) => renderBooks(ctx(), f), reports: (f) => renderReports(ctx(), f), selftest: (f) => renderSelfTest(ctx(), f)
+    books: (f) => renderBooks(ctx(), f), projects: (f) => renderProjects(ctx(), f), reports: (f) => renderReports(ctx(), f), selftest: (f) => renderSelfTest(ctx(), f)
   };
   (views[S.view] || renderDashboard)(full);
 }
@@ -1692,7 +1703,7 @@ async function retagAll() {
 
 
 // ---------- גיבוי ידני (מנהל מערכת) ----------
-const BACKUP_COLS = ["contacts", "activities", "questions", "publicQA", "allowedEmails", "savedLists", "courses", "sessions", "sessionPrivate", "recordings", "materials",
+const BACKUP_COLS = ["mgmtProjects", "contacts", "activities", "questions", "publicQA", "allowedEmails", "savedLists", "courses", "sessions", "sessionPrivate", "recordings", "materials",
   "registrations", "courseAccess", "feedback", "monthly", "settings", "optouts", "orders", "institutions", "distributions", "jgiveInbox", "mailQueue", "auditLog"];
 async function fullBackup(kind) {
   const out = {};
