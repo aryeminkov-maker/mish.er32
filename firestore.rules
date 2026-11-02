@@ -242,7 +242,7 @@ service cloud.firestore {
       allow update: if isAdmin()
         || (isTeam() && myEmail() in resource.data.sharedWith
             && request.resource.data.sharedWith == resource.data.sharedWith
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'desc', 'owner', 'dueDate', 'priority', 'stage', 'health', 'nextStep', 'milestones', 'links', 'tags', 'log', 'updatedAt', 'updatedBy'])
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'desc', 'owner', 'dueDate', 'priority', 'stage', 'health', 'nextStep', 'tasks', 'milestones', 'links', 'tags', 'log', 'updatedAt', 'updatedBy'])
             && request.resource.data.updatedBy == myEmail());
     }
     // ---------- יומן שינויים: כל איש צוות כותב (רק בשמו), רק מנהל מערכת קורא, אי אפשר לשנות או למחוק ----------
@@ -252,8 +252,10 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['action', 'target', 'details', 'by', 'at']);
     }
     // מידע פרטי של הסקריפט (כתובת ה-Webhook של Jgive) – רק מנהל מערכת
+    // וטלפונים של אנשי הצוות לשליחת סיכום משימות בוואטסאפ
     match /private/{id} {
       allow read: if isAdmin();
+      allow write: if isAdmin() && id == 'teamPhones';
     }
     // ---------- ספרים ----------
     // עדכונים מ-Jgive (נכתבים על ידי הסקריפט)

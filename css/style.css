@@ -401,3 +401,14 @@ details.qa .ans.rich { white-space: normal; }
 .ms-row input[type=checkbox] { width: 20px; height: 20px; flex: none; }
 .share-list { max-height: 200px; overflow: auto; margin-top: 6px; }
 .pj-table td { vertical-align: top; }
+.task-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+.task-row input[type=checkbox] { width: 20px; height: 20px; flex: none; }
+.task-row .tk-who { width: 110px; flex: none; }
+.task-row .tk-due { width: 140px; flex: none; }
+.task-row .tk-due.late { border-color: var(--bad); color: var(--bad); }
+.task-row.done [data-tktext] { text-decoration: line-through; color: var(--ink-2); }
+.task-mini { margin: 0; padding-right: 16px; }
+.task-mini li { margin-bottom: 2px; }
+.wa-card { margin: 0 0 10px; padding: 10px 14px; }
+.wa-pre { white-space: pre-wrap; font-family: inherit; background: var(--surface-2); padding: 8px 10px; border-radius: 8px; margin: 6px 0 0; }
+@media (max-width: 640px) { .task-row { flex-wrap: wrap; } .task-row .grow { flex-basis: 100%; } }

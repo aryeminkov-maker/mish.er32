@@ -1,5 +1,5 @@
 // ===== דוחות וסטטיסטיקות – לפי חודשים =====
-import { HEB_MONTHS, todayIso } from "./util.js?v=20261027";
+import { HEB_MONTHS, todayIso } from "./util.js?v=20261028";
 
 const RS = { year: Number(todayIso().slice(0, 4)) };
 const ym = (d) => (d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}` : "");

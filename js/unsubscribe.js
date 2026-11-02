@@ -2,7 +2,7 @@
 // הקישור כולל מזהה אישי (t) שנוצר על ידי סקריפט השליחה. ההסרה נשמרת ב-optouts,
 // כרטיס איש הקשר מתעדכן ל"ביקש הסרה", והסקריפט לא שולח יותר מיילים לכתובת הזו.
 import { doc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { db, configReady, esc, setupMissingNotice, normEmail } from "./common.js?v=20261027";
+import { db, configReady, esc, setupMissingNotice, normEmail } from "./common.js?v=20261028";
 
 const $ = (id) => document.getElementById(id);
 const p = new URLSearchParams(location.search);

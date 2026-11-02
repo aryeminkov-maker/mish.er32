@@ -5,7 +5,7 @@
 import {
   collection, doc, getDoc, getDocs, setDoc, addDoc, deleteDoc, query, limit, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { db } from "./common.js?v=20261027";
+import { db } from "./common.js?v=20261028";
 
 const ALL = ["admin", "head", "staff", "rabbi", "course_manager", "research_coord", "researcher"];
 const STAFF = ["admin", "head", "staff", "rabbi"], EDIT = ["admin", "head", "staff"];

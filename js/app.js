@@ -9,14 +9,14 @@ import {
 import {
   db, auth, configReady, esc, normEmail, normPhone, toDate, fmtDate, toast, setupMissingNotice,
   DEFAULT_TAXONOMY, normTaxonomy, autoTagsFor, readWorkbook, sanitizeRich, plainToRich, richToText, richToMarkup
-} from "./common.js?v=20261027";
-import { renderCourses, renderCalendar, courseSummary } from "./courses.js?v=20261027";
-import { renderResearch, researchSummary } from "./research.js?v=20261027";
-import { composeMail, queueMail, schedulerState } from "./mail.js?v=20261027";
-import { renderBooks } from "./books.js?v=20261027";
-import { renderReports } from "./reports.js?v=20261027";
-import { renderSelfTest } from "./selftest.js?v=20261027";
-import { renderProjects } from "./projects.js?v=20261027";
+} from "./common.js?v=20261028";
+import { renderCourses, renderCalendar, courseSummary } from "./courses.js?v=20261028";
+import { renderResearch, researchSummary } from "./research.js?v=20261028";
+import { composeMail, queueMail, schedulerState } from "./mail.js?v=20261028";
+import { renderBooks } from "./books.js?v=20261028";
+import { renderReports } from "./reports.js?v=20261028";
+import { renderSelfTest } from "./selftest.js?v=20261028";
+import { renderProjects } from "./projects.js?v=20261028";
 
 // ---------- קבועים ----------
 const ROLE_LABEL = {

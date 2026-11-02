@@ -3,8 +3,8 @@
 // המערכת רק כותבת את המייל לתור (mailQueue) – אף אחד לא צריך להתחבר ל-Gmail.
 // בכל מייל הסקריפט מוסיף קישור הסרה מרשימת התפוצה. מי שהסיר את עצמו (optouts) לא מקבל מיילים.
 import { collection, addDoc, serverTimestamp, Timestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { db, toDate, normEmail } from "./common.js?v=20261027";
-import { ORG_NAME } from "./config.js?v=20261027";
+import { db, toDate, normEmail } from "./common.js?v=20261028";
+import { ORG_NAME } from "./config.js?v=20261028";
 
 const escHtml = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]);
 // סימון קל בגוף המייל: "## כותרת", "### כותרת משנה", **מודגש**, __קו תחתון__
