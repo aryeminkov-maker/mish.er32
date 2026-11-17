@@ -44,7 +44,7 @@ service cloud.firestore {
       allow create, delete: if isAdmin() && email == email.lower();
       allow update: if isAdmin()
         || (isTeam() && email == myEmail()
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'lastLogin']));
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'lastLogin', 'phone']));
     }
 
     // ---------- ניהול קשרים ----------

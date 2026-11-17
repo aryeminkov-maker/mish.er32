@@ -3,8 +3,8 @@
 // המערכת רק כותבת את המייל לתור (mailQueue) – אף אחד לא צריך להתחבר ל-Gmail.
 // בכל מייל הסקריפט מוסיף קישור הסרה מרשימת התפוצה. מי שהסיר את עצמו (optouts) לא מקבל מיילים.
 import { collection, addDoc, serverTimestamp, Timestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { db, toDate, normEmail } from "./common.js?v=20261028";
-import { ORG_NAME } from "./config.js?v=20261028";
+import { db, toDate, normEmail } from "./common.js?v=20261104";
+import { ORG_NAME } from "./config.js?v=20261104";
 
 const escHtml = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]);
 // סימון קל בגוף המייל: "## כותרת", "### כותרת משנה", **מודגש**, __קו תחתון__
@@ -39,9 +39,9 @@ export function fill(tpl, rec) {
 // מצב המתזמן (הסקריפט מעדכן settings/mailScheduler בכל ריצה)
 export function schedulerState(s) {
   const last = toDate(s?.lastRun);
-  if (!last) return { ok: false, text: "הסקריפט ששולח את המיילים עוד לא הותקן (README, פרק \"שליחת מיילים\"). המיילים יישמרו בתור וייצאו כשיותקן." };
+  if (!last) return { ok: false, text: "הסקריפט ששולח את המיילים עדיין לא דיווח שהוא פועל. המיילים נשמרים בתור וייצאו כשהוא יעבוד. לבדיקה: ב-script.google.com, בסקריפט של המכון, מריצים את הפונקציה diagnose – היא תכתוב בדיוק מה חסר." };
   const min = Math.round((Date.now() - last.getTime()) / 60000);
-  if (min > 20) return { ok: false, text: `הסקריפט ששולח את המיילים לא רץ כבר ${min} דקות – המיילים יחכו בתור. כדאי לבדוק אותו.` };
+  if (min > 20) return { ok: false, text: `הסקריפט ששולח את המיילים לא רץ כבר ${min} דקות – המיילים יחכו בתור. לבדיקה: מריצים בסקריפט את הפונקציה diagnose.` };
   return { ok: true, text: "" };
 }
 // ---------- חלון כתיבה ושליחה ----------

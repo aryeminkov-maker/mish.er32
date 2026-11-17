@@ -31,6 +31,42 @@ function setup() {
   processQueue();
 }
 
+// ---------- בדיקה: מריצים ידנית (Run) כשמשהו לא עובד ----------
+// התוצאה מופיעה למטה ב-"Execution log". כל שורה עם ✗ אומרת מה לתקן.
+function diagnose() {
+  const out = [];
+  const ok = function (t) { out.push("✓ " + t); };
+  const bad = function (t) { out.push("✗ " + t); };
+  const me = Session.getEffectiveUser().getEmail();
+  ok("הסקריפט רץ מהחשבון: " + me + " (זה החשבון שממנו יישלחו המיילים)");
+  const triggers = ScriptApp.getProjectTriggers().map(function (t) { return t.getHandlerFunction(); });
+  if (triggers.indexOf("processQueue") >= 0) ok("ההפעלה האוטומטית כל 5 דקות קיימת");
+  else bad("אין הפעלה אוטומטית – מריצים פעם אחת את הפונקציה setup");
+  let fsOk = false;
+  try { get_("settings/taxonomy"); fsOk = true; ok("החיבור ל-Firebase (קריאה) עובד"); }
+  catch (e) {
+    const m = String(e.message || e);
+    if (/403|PERMISSION_DENIED/.test(m) && /has not been used|SERVICE_DISABLED|disabled/i.test(m)) bad("ה-API של Firestore לא מופעל בפרויקט. ב-console.cloud.google.com, בפרויקט " + PROJECT_ID + ": APIs & Services ← Library ← Cloud Firestore API ← Enable");
+    else if (/403|PERMISSION_DENIED|USER_PROJECT_DENIED/.test(m)) bad("לחשבון " + me + " אין הרשאה לפרויקט ה-Firebase. ב-Firebase: ⚙️ Project settings ← Users and permissions ← Add member ← " + me + " ← תפקיד Editor. אחר כך מריצים שוב את diagnose");
+    else if (/404/.test(m)) ok("החיבור ל-Firebase עובד (עדיין אין מסמך קטגוריות)"), fsOk = true;
+    else bad("שגיאה בחיבור ל-Firebase: " + m.slice(0, 300));
+  }
+  if (fsOk) {
+    try { patch_("settings/mailScheduler", { lastRun: new Date(), lastError: "", account: me }); ok("כתיבה ל-Firebase עובדת – במערכת יופיע עכשיו \"סקריפט השליחה פעיל\""); }
+    catch (e) { bad("קריאה עובדת אבל כתיבה לא: " + String(e.message || e).slice(0, 300)); }
+    try {
+      const q = runQuery_({ from: [{ collectionId: "mailQueue" }], where: { fieldFilter: { field: { fieldPath: "status" }, op: "EQUAL", value: { stringValue: "scheduled" } } }, limit: 50 });
+      ok("מיילים שממתינים בתור: " + q.length);
+    } catch (e) { bad("לא הצלחתי לקרוא את תור המיילים: " + String(e.message || e).slice(0, 200)); }
+  }
+  try { GmailApp.sendEmail(me, "בדיקה מהסקריפט של משפטי ארץ", "אם המייל הזה הגיע – השליחה מ-Gmail עובדת.", { name: ORG_NAME }); ok("נשלח מייל בדיקה אל " + me + " – בדקו שהגיע"); }
+  catch (e) { bad("שליחה מ-Gmail נכשלה: " + String(e.message || e).slice(0, 300)); }
+  try { ok("נשארו היום " + MailApp.getRemainingDailyQuota() + " מיילים במכסה היומית של Gmail"); } catch (e) { /* */ }
+  const text = out.join("\n");
+  console.log(text);
+  return text;
+}
+
 // הכתובת שמדביקים ב-Jgive (נשמרת במסמך שרק מנהל המערכת יכול לקרוא)
 function saveWebAppUrl_() {
   let url = "";
@@ -261,8 +297,16 @@ function qaNotifications_(site) {
     return (emails || []).map(function (e) { return String(e).toLowerCase().trim(); }).filter(function (e) { if (!e || seen[e]) return false; seen[e] = true; return true; })
       .map(function (e) { const n = users[e] && users[e].name || ""; return { email: e, name: n, firstName: n.split(" ")[0] || "", vars: {} }; });
   };
-  const forTopic = function (topic) { const m = cfg.byCategory || {}; return (m[topic] && m[topic].length ? m[topic] : cfg.emails) || []; };
+  const forTopic = function (topic) {
+    const m = cfg.byCategory || {};
+    if (m[topic] && m[topic].length) return m[topic];
+    if (cfg.emails && cfg.emails.length) return cfg.emails;
+    return cfg.defaultRabbi ? [cfg.defaultRabbi] : [];
+  };
   const link = site ? site + "index.html#questions" : "";
+  // אם עוד לא נשמרה הגדרה – מנהלי המערכת מקבלים עותק מכל שאלה חדשה
+  const newAlso = cfg.newAlso !== undefined && cfg.newAlso !== null ? cfg.newAlso
+    : Object.keys(users).filter(function (e) { return users[e] && users[e].role === "admin"; });
   const open = ["new", "in_progress"].reduce(function (acc, st) {
     return acc.concat(runQuery_({ from: [{ collectionId: "questions" }], where: { fieldFilter: { field: { fieldPath: "status" }, op: "EQUAL", value: { stringValue: st } } } }));
   }, []);
@@ -272,7 +316,8 @@ function qaNotifications_(site) {
       const d = q.data;
       if (d.status !== "new" || d.notifiedAt || (Date.parse(d.createdAt) || 0) < since) return;
       patch_(q.path, { notifiedAt: new Date() });
-      const to = d.rabbiEmail ? [d.rabbiEmail] : forTopic(d.topic);
+      // הרב/המשיב + עותק לכל מי שסומן "עותק מכל שאלה חדשה" (למשל מנהל המערכת)
+      const to = (d.rabbiEmail ? [d.rabbiEmail] : forTopic(d.topic)).concat(newAlso);
       enqueue_({ site: site, internal: true, kind: "qa-new", title: "התראה על שאלה חדשה", recipients: rec(to),
         subject: "שאלה חדשה" + (d.topic ? " בנושא " + d.topic : "") + " – שו\"ת משפטי ארץ",
         body: "שלום {שם פרטי},\n\nהתקבלה שאלה חדשה" + (d.topic ? " בקטגוריה \"" + d.topic + "\"" : "") + ":\n\n" + String(d.text || "").slice(0, 1500)
@@ -409,25 +454,10 @@ function toHtml_(text, unsub) {
     + (unsub ? '<div style="margin-top:6px;font-size:12px">לא רוצים לקבל מאיתנו מיילים? <a href="' + escHtml_(unsub) + '" style="color:#6b6456">להסרה מרשימת התפוצה</a></div>' : "")
     + "</div></div></body></html>";
 }
+// שליחה דרך GmailApp – לא צריך להפעיל שום API בענן, והמייל מופיע ב"דואר שנשלח" של המכון
 function sendGmail_(to, toName, subject, text, unsub) {
-  const from = Session.getEffectiveUser().getEmail();
-  const boundary = "mx" + Utilities.getUuid().replace(/-/g, "");
-  const mime = [
-    "From: " + encHeader_(ORG_NAME) + " <" + from + ">",
-    "To: " + (toName ? encHeader_(toName) + " <" + to + ">" : to),
-    "Subject: " + encHeader_(subject), "MIME-Version: 1.0",
-    unsub ? "List-Unsubscribe: <" + unsub + ">" : "X-Mailer: Mishpetei-Eretz",
-    'Content-Type: multipart/alternative; boundary="' + boundary + '"', "",
-    "--" + boundary, "Content-Type: text/plain; charset=UTF-8", "Content-Transfer-Encoding: base64", "", wrap76_(b64_(stripMarkup_(text) + (unsub ? "\n\n--\nלהסרה מרשימת התפוצה: " + unsub : ""))),
-    "--" + boundary, "Content-Type: text/html; charset=UTF-8", "Content-Transfer-Encoding: base64", "", wrap76_(b64_(toHtml_(text, unsub))),
-    "--" + boundary + "--", ""
-  ].join("\r\n");
-  const raw = Utilities.base64EncodeWebSafe(Utilities.newBlob(mime).getBytes()).replace(/=+$/, "");
-  const res = UrlFetchApp.fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
-    method: "post", contentType: "application/json", payload: JSON.stringify({ raw: raw }),
-    headers: authHeaders_(), muteHttpExceptions: true
-  });
-  if (res.getResponseCode() >= 300) throw new Error("Gmail " + res.getResponseCode() + ": " + res.getContentText().slice(0, 200));
+  const plain = stripMarkup_(text) + (unsub ? "\n\n--\nלהסרה מרשימת התפוצה: " + unsub : "");
+  GmailApp.sendEmail(to, subject, plain, { htmlBody: toHtml_(text, unsub), name: ORG_NAME });
 }
 
 // ---------- Firestore (REST) ----------

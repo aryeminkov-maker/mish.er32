@@ -1,6 +1,6 @@
 // ===== מאגר שו"ת ציבורי =====
 import { collection, getDocs, query, orderBy } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { db, configReady, esc, fmtDate, setupMissingNotice, loadTaxonomy, sanitizeRich } from "./common.js?v=20261028";
+import { db, configReady, esc, fmtDate, setupMissingNotice, loadTaxonomy, sanitizeRich } from "./common.js?v=20261104";
 
 const $ = (id) => document.getElementById(id);
 let ALL = [];
@@ -43,6 +43,7 @@ function render() {
       <summary>${esc(x.question.length > 140 ? x.question.slice(0, 140) + "…" : x.question)}</summary>
       <div class="small muted" style="margin-top:6px">${esc(x.topic || "")}${x.publishedAt ? " · " + fmtDate(x.publishedAt) : ""} ${(x.tags || []).map((g) => `<span class="badge">${esc(g)}</span>`).join("")}</div>
       ${x.question.length > 140 ? `<p class="pre">${esc(x.question)}</p>` : ""}
+      ${x.askerName ? `<p class="small muted" style="margin:4px 0 0">שאל/ה: ${esc(x.askerName)}</p>` : ""}
       <div class="ans ${x.answerHtml ? "rich" : ""}">${x.answerHtml ? sanitizeRich(x.answerHtml) : esc(x.answer)}${x.rabbiName ? `<p class="small muted">— ${esc(x.rabbiName)}</p>` : ""}</div>
       <div class="row" style="margin-top:8px"><a class="share-wa" href="${waLink(x)}" target="_blank" rel="noopener">${WA_ICON} שיתוף בוואטסאפ</a>
         <button class="link small" data-copylink="${esc(x.id)}">העתקת קישור</button></div>

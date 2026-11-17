@@ -139,6 +139,8 @@
 
 **בכל עדכון של הסקריפט** (כמו בגרסה הזו): מדביקים מחדש את שני הקבצים, שומרים, ומריצים שוב **setup**. Google יבקש לאשר הרשאה חדשה (Google Drive – לגיבוי). אם פרסמתם Web App ל-Jgive: Deploy ← Manage deployments ← ✏️ ← Version: **New version** ← Deploy.
 
+**משהו לא עובד?** ב-script.google.com, בסקריפט של המכון, בוחרים למעלה את הפונקציה **diagnose** ← **Run**. ב-"Execution log" למטה מופיעה בדיקה של כל שלב (הרשאה ל-Firebase, הפעלה אוטומטית, שליחה מ-Gmail, מכסה יומית), ובכל שורה עם ✗ כתוב מה לתקן.
+
 **אם במסך מופיעה שגיאה** כמו "API has not been used in project": ב-Firebase ← Project settings מעתיקים את **Project number**. ב-Apps Script ← Project Settings ← **Google Cloud Platform (GCP) Project** ← Change project ← מדביקים ← Set project, ומריצים שוב את **setup**. אם הגיבוי נכשל עם שגיאה דומה על Drive – באותו פרויקט ב-console.cloud.google.com ← APIs & Services ← Library ← **Google Drive API** ← Enable.
 
 **מגבלות:** חשבון Gmail רגיל שולח עד כ-500 מיילים ביום. כל נמען מקבל מייל נפרד, ולכן הכתובות לא נחשפות לאחרים. לדיוור שיווקי רחב (אלפי נמענים) עדיף שירות דיוור ייעודי.

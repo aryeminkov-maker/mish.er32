@@ -11,7 +11,7 @@
   <link rel="apple-touch-icon" href="img/icon-192.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#c19937">
-  <link rel="stylesheet" href="css/style.css?v=20261028">
+  <link rel="stylesheet" href="css/style.css?v=20261104">
 </head>
 <body>
   <a class="skip-link" href="#content">דילוג לתוכן</a>
@@ -37,9 +37,15 @@
         <button class="primary" type="submit" id="send">שליחת השאלה</button>
       </form>
     </div>
+    <div class="card medium hidden sending-card" id="sending" role="status" aria-live="polite">
+      <div class="spinner" aria-hidden="true"></div>
+      <h2>השאלה בתהליך שליחה</h2>
+      <p class="muted">אנא המתן/י, זה ייקח רגע...</p>
+    </div>
     <div class="card medium hidden" id="thanks">
       <h2>השאלה התקבלה, תודה!</h2>
-      <p><span id="thanksText"></span> בינתיים אפשר לעיין ב<a href="shut.html">מאגר השו"ת</a>.</p>
+      <p><span id="thanksText"></span></p>
+      <p>בינתיים אפשר לעיין ב<a href="https://www.dintora.org/Show_articles/20" target="_blank" rel="noopener"><b>מאגר השו"ת של המכון</b></a> – אולי התשובה כבר שם.</p>
       <button onclick="location.reload()">שאלה נוספת</button>
     </div>
   </main>
@@ -49,7 +55,7 @@
   </footer>
   <dialog id="consentDialog" aria-labelledby="cdTitle">
     <h2 id="cdTitle">רגע לפני השליחה</h2>
-    <p>שמנו לב שלא אישרת קבלת דיוור, זה אומר שלא תוכל לקבל את התשובה לשאלה שלך. האם אתה רוצה לאשר בכל זאת?</p>
+    <p>שאלות של מי שמאשר/ת קבלת עדכונים מהמכון במייל מקבלות <b>עדיפות במענה</b>. לאשר?</p>
     <div class="row">
       <button class="primary" id="cdYes" type="button">כן, אני מאשר/ת ושולח/ת</button>
       <button id="cdNo" type="button">שליחה בלי אישור</button>
@@ -57,7 +63,7 @@
     </div>
   </dialog>
 
-  <script type="module" src="js/ask.js?v=20261028"></script>
+  <script type="module" src="js/ask.js?v=20261104"></script>
   <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
 </body>
 </html>

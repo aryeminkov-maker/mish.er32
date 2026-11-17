@@ -9,14 +9,14 @@ import {
 import {
   db, auth, configReady, esc, normEmail, normPhone, toDate, fmtDate, toast, setupMissingNotice,
   DEFAULT_TAXONOMY, normTaxonomy, autoTagsFor, readWorkbook, sanitizeRich, plainToRich, richToText, richToMarkup
-} from "./common.js?v=20261028";
-import { renderCourses, renderCalendar, courseSummary } from "./courses.js?v=20261028";
-import { renderResearch, researchSummary } from "./research.js?v=20261028";
-import { composeMail, queueMail, schedulerState } from "./mail.js?v=20261028";
-import { renderBooks } from "./books.js?v=20261028";
-import { renderReports } from "./reports.js?v=20261028";
-import { renderSelfTest } from "./selftest.js?v=20261028";
-import { renderProjects } from "./projects.js?v=20261028";
+} from "./common.js?v=20261104";
+import { renderCourses, renderCalendar, courseSummary } from "./courses.js?v=20261104";
+import { renderResearch, researchSummary } from "./research.js?v=20261104";
+import { composeMail, queueMail, schedulerState } from "./mail.js?v=20261104";
+import { renderBooks } from "./books.js?v=20261104";
+import { renderReports } from "./reports.js?v=20261104";
+import { renderSelfTest } from "./selftest.js?v=20261104";
+import { renderProjects } from "./projects.js?v=20261104";
 
 // ---------- קבועים ----------
 const ROLE_LABEL = {
@@ -454,6 +454,8 @@ const categoryOptions = (cur, withEmpty) => {
   return (withEmpty ? '<option value="">ללא</option>' : "") + cats.map((t) => `<option ${t === cur ? "selected" : ""}>${esc(t)}</option>`).join("");
 };
 const rabbis = () => [...S.users.values()].filter((u) => ["rabbi", "head", "admin"].includes(u.role));
+// משיב ברירת מחדל לשאלה שלא שויכה: הרב של הקטגוריה, ואם אין – המשיב הכללי שבהגדרות
+const defaultRabbi = (topic) => { const n = S.qaNotify || {}; const e = (n.byCategory?.[topic] || [])[0] || n.defaultRabbi || ""; return S.users.has(e) ? e : ""; };
 
 function countsOf(contactId) {
   const acts = S.actByContact.get(contactId) || [];
@@ -967,14 +969,15 @@ async function mergeContacts(ids) {
 // ======================================================
 // שו"ת
 // ======================================================
+const pubMode = () => document.querySelector('[name="qPubMode"]:checked')?.value || "none";
 function qCardHtml(q) {
   return `<div class="qcard" data-q="${q.id}">
     <div class="row space"><b>${esc([q.firstName, q.lastName].filter(Boolean).join(" ") || q.email || "שואל")}</b>
-      <span><span class="badge ${Q_BADGE[q.status]}">${Q_STATUS[q.status]}</span>${q.topic ? `<span class="badge">${esc(q.topic)}</span>` : ""}</span></div>
+      <span>${q.consentEmail && q.status !== "answered" ? '<span class="badge prio" title="השואל אישר קבלת דיוור – הובטחה לו עדיפות במענה">עדיפות</span>' : ""}<span class="badge ${Q_BADGE[q.status]}">${Q_STATUS[q.status]}</span>${q.topic ? `<span class="badge">${esc(q.topic)}</span>` : ""}</span></div>
     <div class="qtext">${esc(q.text)}</div>
     ${qTags(q).length ? `<div>${tagBadges(q)}</div>` : ""}
     <div class="row space small"><span>${contextBadges(q.contactId, q.id)}</span>
-      <span class="muted">${fmtDate(q.createdAt)}${q.rabbiEmail ? " · " + esc(userName(q.rabbiEmail)) : " · לא שויך"}</span></div>
+      <span class="muted">${fmtDate(q.createdAt)}${q.rabbiEmail ? " · " + esc(userName(q.rabbiEmail)) : q.status !== "answered" && defaultRabbi(q.topic) ? ` · ${esc(userName(defaultRabbi(q.topic)))} <span class="small">(ברירת מחדל)</span>` : " · לא שויך"}</span></div>
   </div>`;
 }
 function bindQCards() { document.querySelectorAll(".qcard[data-q]").forEach((el) => (el.onclick = () => openQuestion(el.dataset.q))); }
@@ -1050,7 +1053,7 @@ function exportQuestions() {
     return {
       "תאריך": fmtDate(q.createdAt), "שם": [q.firstName, q.lastName].filter(Boolean).join(" "), "מייל": q.email || "", "טלפון": q.phone || "",
       "קטגוריה": q.topic || "", "תגיות": qTags(q).join(", "), "שאלה": q.text || "", "סטטוס": Q_STATUS[q.status] || "", "רב": userName(q.rabbiEmail),
-      "תשובה": q.answer || "", "תאריך מענה": fmtDate(q.answeredAt), "פורסם במאגר": q.publish ? "כן" : "לא",
+      "תשובה": q.answer || "", "תאריך מענה": fmtDate(q.answeredAt), "פורסם במאגר": q.publish ? (q.publishMode === "named" ? `כן, בשם: ${q.publicName || ""}` : "כן, בעילום שם") : "לא",
       "תורם": n.donation ? "כן" : "", "משתתף השתלמויות": n.course ? "כן" : "", "מקור": q.origin || ""
     };
   });
@@ -1098,8 +1101,8 @@ function openQuestion(id) {
         <div class="card pre" style="background:var(--surface-2)">${esc(q.text)}</div>
         <div class="field"><label id="qAnsLbl">תשובה</label>${richEditorHtml("qAnswer", q.answerHtml ? sanitizeRich(q.answerHtml) : plainToRich(q.answer), "qAnsLbl")}</div>
         <div class="grid2">
-          <div class="field"><label>רב משיב</label><select id="qRabbiSel"><option value="">לא שויך</option>
-            ${rabbis().map((r) => `<option value="${r.id}" ${q.rabbiEmail === r.id ? "selected" : ""}>${esc(userName(r.id))}</option>`).join("")}</select></div>
+          <div class="field"><label for="qRabbiSel">רב משיב${!q.rabbiEmail && q.status !== "answered" && defaultRabbi(q.topic) ? ' <span class="small muted">(הוצע משיב ברירת המחדל)</span>' : ""}</label><select id="qRabbiSel"><option value="">לא שויך</option>
+            ${rabbis().map((r) => `<option value="${r.id}" ${(q.rabbiEmail || (q.status !== "answered" ? defaultRabbi(q.topic) : "")) === r.id ? "selected" : ""}>${esc(userName(r.id))}</option>`).join("")}</select></div>
           <div class="field"><label>סטטוס</label><select id="qStatusSel">
             ${Object.entries(Q_STATUS).map(([k, v]) => `<option value="${k}" ${q.status === k ? "selected" : ""}>${v}</option>`).join("")}</select></div>
           <div class="field"><label>קטגוריה</label><select id="qTopicSel">${categoryOptions(q.topic, true)}</select></div>
@@ -1111,8 +1114,14 @@ function openQuestion(id) {
           <h3 style="margin:0 0 6px">פרסום במאגר השו"ת</h3>
           <div class="field"><label for="qPublicText">נוסח השאלה לפרסום – אפשר לערוך, לקצר ולהסיר פרטים מזהים (השאלה המקורית נשמרת)</label>
             <textarea id="qPublicText" style="min-height:110px">${esc(q.publicText ?? q.text)}</textarea></div>
-          <div class="row space"><label class="check"><input type="checkbox" id="qPublish" ${q.publish ? "checked" : ""}> <span>לפרסם בעילום שם במאגר</span></label>
-            <button class="link" id="qPubReset">החזרת הנוסח המקורי</button></div>
+          <div class="row space"><span></span><button class="link" id="qPubReset">החזרת הנוסח המקורי</button></div>
+          <fieldset class="pub-mode"><legend class="small"><b>האם לפרסם?</b></legend>
+            <label class="check"><input type="radio" name="qPubMode" value="none" ${!q.publish ? "checked" : ""}> <span>לא לפרסם</span></label>
+            <label class="check"><input type="radio" name="qPubMode" value="anon" ${q.publish && q.publishMode !== "named" ? "checked" : ""}> <span>לפרסם בעילום שם</span></label>
+            <label class="check"><input type="radio" name="qPubMode" value="named" ${q.publish && q.publishMode === "named" ? "checked" : ""}> <span>לפרסם עם שם השואל</span></label>
+          </fieldset>
+          <div class="field ${q.publish && q.publishMode === "named" ? "" : "hidden"}" id="qPubNameBox"><label for="qPubName">השם שיופיע במאגר (אפשר לשנות, למשל רק שם פרטי ויישוב)</label>
+            <input id="qPubName" value="${esc(q.publicName ?? [q.firstName, q.lastName].filter(Boolean).join(" "))}" maxlength="80"></div>
           <p class="small muted" style="margin:4px 0 0">התשובה מתפרסמת כפי שהיא כתובה למעלה, כולל העיצוב.</p>
         </div>
         <div class="row">
@@ -1136,12 +1145,17 @@ function openQuestion(id) {
     </div>`, (root) => {
     bindRichEditor("qAnswer");
     $("qPubReset").onclick = () => { $("qPublicText").value = q.text || ""; };
+    // שינוי קטגוריה בשאלה שלא שויכה – מציע את המשיב של הקטגוריה החדשה (אם לא בחרו ידנית)
+    let rabbiTouched = !!q.rabbiEmail;
+    $("qRabbiSel").addEventListener("change", () => (rabbiTouched = true));
+    $("qTopicSel").addEventListener("change", (e) => { if (!rabbiTouched && q.status !== "answered") $("qRabbiSel").value = defaultRabbi(e.target.value); });
+    document.querySelectorAll('[name="qPubMode"]').forEach((r) => (r.onchange = () => $("qPubNameBox").classList.toggle("hidden", pubMode() !== "named")));
     // שליחת התשובה במייל – עם השאלה, ועם הכותרות וההדגשות של התשובה
     const sendAnswer = (cur, html) => {
       const rabbi = userName(cur.rabbiEmail || "");
       composeMail(ctx(), {
         title: "שליחת התשובה לשואל", kind: "qa-answer",
-        warning: cur.consentEmail === false ? "השואל לא אישר קבלת דיוור בטופס (וקיבל הודעה שבלי אישור לא יקבל תשובה במייל)." : "",
+        warning: cur.consentEmail === false ? "השואל לא אישר קבלת דיוור בטופס. אפשר לשלוח לו את התשובה – זה מייל אישי בתשובה לשאלה שלו." : "",
         recipients: [{ email: cur.email, name: [cur.firstName, cur.lastName].filter(Boolean).join(" "), firstName: cur.firstName, contactId: cur.contactId, ref: id, consent: cur.consentEmail }],
         subject: "תשובה לשאלתך – מכון משפטי ארץ",
         body: `שלום {שם פרטי},\n\n## שאלתך\n${cur.text}\n\n## תשובה\n${richToMarkup(html)}\n\nבברכה,${rabbi ? "\n" + rabbi : ""}\nמכון משפטי ארץ`,
@@ -1188,7 +1202,9 @@ async function saveQuestion(id) {
   const status = $("qStatusSel").value;
   const answerHtml = sanitizeRich($("qAnswer").innerHTML);
   const answer = richToText(answerHtml);
-  const publish = $("qPublish").checked;
+  const mode = pubMode(), publish = mode !== "none";
+  const publicName = $("qPubName").value.trim();
+  if (mode === "named" && !publicName) { toast("נא למלא את השם שיופיע במאגר", "bad"); $("qPubName").focus(); return false; }
   const publicText = $("qPublicText").value.trim();
   if (status === "answered" && !answer) { toast("כדי לסמן 'נענתה' צריך לכתוב תשובה", "bad"); return false; }
   if (publish && (!answer || status !== "answered")) { toast("אפשר לפרסם רק שאלה שנענתה", "bad"); return false; }
@@ -1196,12 +1212,12 @@ async function saveQuestion(id) {
   const rabbiEmail = $("qRabbiSel").value || (status !== "new" && can("rabbi") ? myEmail() : "");
   const tags = [...new Set($("qTagsIn").value.split(",").map((t) => t.trim()).filter(Boolean))];
   const autoTags = calcAutoTags(q.text, answer);
-  const upd = { status, answer, answerHtml: answer ? answerHtml : "", rabbiEmail: rabbiEmail || "", topic: $("qTopicSel").value, tags, autoTags, publish, publicText, updatedAt: serverTimestamp() };
+  const upd = { status, answer, answerHtml: answer ? answerHtml : "", rabbiEmail: rabbiEmail || "", topic: $("qTopicSel").value, tags, autoTags, publish, publishMode: publish ? mode : "", publicName: mode === "named" ? publicName : (q.publicName ?? null), publicText, updatedAt: serverTimestamp() };
   if (status === "answered" && q.status !== "answered") upd.answeredAt = serverTimestamp();
   try {
     await updateDoc(doc(db, "questions", id), upd);
     if (publish) {
-      await setDoc(doc(db, "publicQA", id), { topic: upd.topic, tags: [...new Set([...tags, ...autoTags])], question: publicText || q.text, answer, answerHtml: upd.answerHtml, rabbiName: userName(rabbiEmail), publishedAt: q.publish ? (q.publishedAt || serverTimestamp()) : serverTimestamp() });
+      await setDoc(doc(db, "publicQA", id), { topic: upd.topic, tags: [...new Set([...tags, ...autoTags])], question: publicText || q.text, askerName: mode === "named" ? publicName : "", answer, answerHtml: upd.answerHtml, rabbiName: userName(rabbiEmail), publishedAt: q.publish ? (q.publishedAt || serverTimestamp()) : serverTimestamp() });
       if (!q.publish) await updateDoc(doc(db, "questions", id), { publishedAt: serverTimestamp() });
     } else if (q.publish) {
       await deleteDoc(doc(db, "publicQA", id));
@@ -1505,7 +1521,8 @@ async function loadAudit() {
 }
 
 function renderUsers(full) {
-  const keep = full ? null : { e: $("uEmail")?.value, n: $("uName")?.value, r: $("uRole")?.value };
+  if (!full && document.activeElement?.matches?.("[data-uphone]")) return; // לא לדרוס הקלדת טלפון
+  const keep = full ? null : { e: $("uEmail")?.value, n: $("uName")?.value, p: $("uPhone")?.value, r: $("uRole")?.value };
   const users = [...S.users.values()].sort((a, b) => userName(a.id).localeCompare(userName(b.id), "he"));
   const roleOpts = (cur) => Object.entries(ROLE_LABEL).map(([k, v]) => `<option value="${k}" ${cur === k ? "selected" : ""}>${v}</option>`).join("");
   $("main").innerHTML = `
@@ -1516,15 +1533,17 @@ function renderUsers(full) {
       <div class="row">
         <input id="uEmail" type="email" class="grow" placeholder="כתובת Gmail / Google">
         <input id="uName" class="grow" placeholder="שם">
+        <input id="uPhone" type="tel" dir="ltr" style="width:150px" placeholder="טלפון (וואטסאפ)" aria-label="טלפון">
         <select id="uRole" style="width:auto">${roleOpts("staff")}</select>
         <button class="primary" id="uAdd">הוספה</button>
       </div>
     </div>
     <div class="card" style="padding:0"><div class="table-wrap"><table>
-      <thead><tr><th>שם</th><th>מייל</th><th>תפקיד</th><th class="hide-mobile">כניסה אחרונה</th><th></th></tr></thead>
+      <thead><tr><th>שם</th><th>מייל</th><th>טלפון (וואטסאפ)</th><th>תפקיד</th><th class="hide-mobile">כניסה אחרונה</th><th></th></tr></thead>
       <tbody>${users.map((u) => {
         const me = u.id === myEmail();
         return `<tr><td>${esc(u.name || "")}</td><td>${esc(u.id)}</td>
+        <td><input data-uphone="${esc(u.id)}" value="${esc(u.phone || "")}" type="tel" dir="ltr" style="width:140px" placeholder="050..." aria-label="טלפון של ${esc(u.name || u.id)}"></td>
         <td><select data-email="${esc(u.id)}" style="width:auto" ${me ? "disabled" : ""}>${roleOpts(u.role)}</select></td>
         <td class="hide-mobile small muted">${u.lastLogin ? fmtDate(u.lastLogin) : "עוד לא נכנס"}</td>
         <td>${me ? "" : `<button class="danger" data-remove="${esc(u.id)}">הסרה</button>`}</td></tr>`;
@@ -1538,17 +1557,23 @@ function renderUsers(full) {
     <div class="card" style="padding:0" id="auditBox"><p class="muted" style="padding:12px">טוען...</p></div>`;
   loadAudit();
   document.querySelectorAll("#main [data-go]").forEach((b) => (b.onclick = () => go(b.dataset.go)));
-  if (keep?.e != null) { $("uEmail").value = keep.e; $("uName").value = keep.n; $("uRole").value = keep.r; }
+  if (keep?.e != null) { $("uEmail").value = keep.e; $("uName").value = keep.n; $("uPhone").value = keep.p || ""; $("uRole").value = keep.r; }
   $("uAdd").onclick = async () => {
     const email = normEmail($("uEmail").value);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return toast("כתובת מייל לא תקינה", "bad");
     if (S.users.has(email)) return toast("המייל כבר ברשימה", "bad");
     try {
-      await setDoc(doc(db, "allowedEmails", email), { name: $("uName").value.trim(), role: $("uRole").value, addedBy: myEmail(), addedAt: serverTimestamp() });
+      await setDoc(doc(db, "allowedEmails", email), { name: $("uName").value.trim(), phone: $("uPhone").value.trim(), role: $("uRole").value, addedBy: myEmail(), addedAt: serverTimestamp() });
       audit("הוספת משתמש", email, ROLE_LABEL[$("uRole").value]);
       toast("נוסף. עכשיו הוא יכול להיכנס עם חשבון ה-Google שלו", "good");
     } catch (e) { toast("ההוספה נכשלה: " + e.code, "bad"); }
   };
+  document.querySelectorAll("[data-uphone]").forEach((i) => (i.onchange = async () => {
+    const ph = i.value.trim();
+    if (ph && ph.replace(/\D/g, "").length < 9) return toast("מספר הטלפון לא תקין", "bad");
+    try { await updateDoc(doc(db, "allowedEmails", i.dataset.uphone), { phone: ph }); toast("הטלפון נשמר", "good"); }
+    catch (e) { toast("השמירה נכשלה: " + e.code, "bad"); }
+  }));
   document.querySelectorAll("select[data-email]").forEach((s) => (s.onchange = async () => {
     try { await updateDoc(doc(db, "allowedEmails", s.dataset.email), { role: s.value }); toast("התפקיד עודכן", "good"); audit("שינוי תפקיד", s.dataset.email, ROLE_LABEL[s.value]); }
     catch (e) { toast("העדכון נכשל: " + e.code, "bad"); }
@@ -1566,14 +1591,18 @@ function renderUsers(full) {
 let SET = null; // טיוטת עריכה
 
 function renderSettings(full) {
-  if (!full && $("setCats")) return; // לא לדרוס עריכה פתוחה
+  if (!full && $("setCats") && (SET?.dirty || document.querySelector("#modalRoot .modal"))) return; // לא לדרוס עריכה פתוחה
   SET = JSON.parse(JSON.stringify(S.tax));
+  // כל קטגוריה זוכרת את שמה המקורי – כדי לעדכן את השאלות כשמשנים שם או מוחקים
+  SET.rows = SET.categories.map((name) => ({ name, orig: name }));
+  SET.moves = new Map(); // שם מקורי של קטגוריה שנמחקה ← השורה שאליה עוברות השאלות
   $("main").innerHTML = `
     <h1>הגדרות</h1>
     <div class="split">
       <div class="card">
         <h2>קטגוריות</h2>
-        <p class="small muted">מופיעות בטופס "שאל את הרב", במאגר ובסינון. הקטגוריה המסומנת היא ברירת המחדל בטופס.</p>
+        <p class="small muted">מופיעות בטופס "שאל את הרב", במאגר ובסינון. העיגול המסומן = ברירת המחדל בטופס.
+          שינוי שם מעדכן את כל השאלות של הקטגוריה; במחיקה בוחרים לאן להעביר את השאלות שלה. השינויים נכנסים לתוקף בלחיצה על "שמירת ההגדרות".</p>
         <div id="setCats"></div>
         <button id="addCat" style="margin-top:8px">+ קטגוריה</button>
       </div>
@@ -1593,6 +1622,7 @@ function renderSettings(full) {
       <h2>שליחת מיילים</h2>
       ${schedulerState(S.scheduler).ok ? `<p><span class="badge good">סקריפט השליחה פעיל</span>${S.scheduler?.account ? ` · שולח מ-<b dir="ltr">${esc(S.scheduler.account)}</b>` : ""}</p>`
         : `<div class="conflict-box">${esc(schedulerState(S.scheduler).text)}</div>`}
+      ${S.scheduler?.lastError ? `<div class="conflict-box" style="margin-top:8px">שגיאה בהרצה האחרונה של הסקריפט: <span dir="auto">${esc(S.scheduler.lastError)}</span></div>` : ""}
       <p class="small muted">כל המיילים נשלחים מחשבון ה-Gmail של המכון על ידי הסקריפט, תוך כמה דקות. בכל מייל יש קישור להסרה מרשימת התפוצה. ${S.optouts.size ? `עד היום ${S.optouts.size} כתובות הוסרו.` : ""}</p>
       <button id="mailTest">שליחת מייל ניסיון לעצמי</button>
     </div>
@@ -1623,31 +1653,43 @@ function renderSettings(full) {
     catch (e) { toast("השמירה נכשלה: " + e.code, "bad"); }
   };
   drawSettingsLists();
-  $("addCat").onclick = () => { SET.categories.push(""); drawSettingsLists(); };
+  // ברגע שמתחילים לערוך – המסך לא מתרענן מעצמו (כדי לא לאבד שינויים)
+  ["setCats", "setTags", "addCat", "addTag"].forEach((id) => ["input", "click"].forEach((ev) => $(id).addEventListener(ev, (e) => { if (ev === "input" || e.target.closest("button")) SET.dirty = true; })));
+  $("addCat").onclick = () => { SET.rows.push({ name: "", orig: "" }); drawSettingsLists(); $("setCats").querySelector(".cond:last-child [data-k=name]")?.focus(); };
   $("addTag").onclick = () => { SET.tags.push({ name: "", keywords: [] }); drawSettingsLists(); };
   $("saveSet").onclick = saveSettings;
   $("retagAll").onclick = retagAll;
 }
 
 function drawSettingsLists() {
-  $("setCats").innerHTML = SET.categories.map((c, i) => `
-    <div class="cond" data-i="${i}">
-      <label class="check" title="ברירת מחדל" style="margin:0"><input type="radio" name="defCat" data-k="def" ${c && c === SET.defaultCategory ? "checked" : ""}></label>
-      <input data-k="name" value="${esc(c)}" placeholder="שם הקטגוריה" style="flex:1">
-      <button data-k="up" title="למעלה" ${i === 0 ? "disabled" : ""}>▲</button>
-      <button data-k="del" class="danger" title="מחיקה">✕</button>
-    </div>`).join("");
+  // שאלות לפי שם מקורי של קטגוריה, כולל שאלות שכבר הועברו לשורה הזו ממחיקה קודמת
+  const qCount = (orig) => (orig ? [...S.questions.values()].filter((q) => q.topic === orig).length : 0);
+  const origsOf = (row) => [row.orig, ...[...SET.moves].filter(([, t]) => t === row).map(([o]) => o)].filter(Boolean);
+  const qn = (k) => (k === 1 ? "שאלה אחת" : `${k} שאלות`);
+  const rowCount = (row) => origsOf(row).reduce((a, o) => a + qCount(o), 0);
+  $("setCats").innerHTML = SET.rows.map((r, i) => {
+    const n = rowCount(r), renamed = r.orig && r.name.trim() !== r.orig, moved = [...SET.moves].filter(([, t]) => t === r).map(([o]) => o);
+    return `
+    <div class="cond cat-row" data-i="${i}">
+      <label class="check" title="ברירת מחדל בטופס" style="margin:0"><input type="radio" name="defCat" data-k="def" aria-label="ברירת מחדל" ${r.name && r.name === SET.defaultCategory ? "checked" : ""}></label>
+      <input data-k="name" value="${esc(r.name)}" placeholder="שם הקטגוריה" style="flex:1" aria-label="שם הקטגוריה">
+      <span class="small muted cat-n" title="שאלות בקטגוריה">${n ? qn(n) : ""}</span>
+      <button data-k="up" title="למעלה" aria-label="להעלות" ${i === 0 ? "disabled" : ""}>▲</button>
+      <button data-k="del" class="danger" title="מחיקה" aria-label="מחיקת הקטגוריה">✕</button>
+    </div>
+    ${renamed || moved.length ? `<div class="small cat-note">${renamed ? `השם ישתנה מ"${esc(r.orig)}"${qCount(r.orig) ? ` – ${qn(qCount(r.orig))} יעודכנו` : ""}. ` : ""}${moved.length ? `יקבל את השאלות של: ${moved.map((o) => `"${esc(o)}"`).join(", ")}.` : ""}</div>` : ""}`;
+  }).join("");
   $("setCats").querySelectorAll(".cond").forEach((row) => {
-    const i = Number(row.dataset.i);
+    const i = Number(row.dataset.i), r = SET.rows[i];
     row.querySelector('[data-k="name"]').oninput = (e) => {
-      const was = SET.categories[i]; SET.categories[i] = e.target.value;
+      const was = r.name; r.name = e.target.value;
       if (SET.defaultCategory === was) SET.defaultCategory = e.target.value;
     };
-    row.querySelector('[data-k="def"]').onchange = () => { SET.defaultCategory = SET.categories[i]; };
-    row.querySelector('[data-k="up"]').onclick = () => { const c = SET.categories.splice(i, 1)[0]; SET.categories.splice(i - 1, 0, c); drawSettingsLists(); };
-    row.querySelector('[data-k="del"]').onclick = () => { SET.categories.splice(i, 1); drawSettingsLists(); };
+    row.querySelector('[data-k="name"]').onchange = () => drawSettingsLists();
+    row.querySelector('[data-k="def"]').onchange = () => { SET.defaultCategory = r.name; };
+    row.querySelector('[data-k="up"]').onclick = () => { SET.rows.splice(i, 1); SET.rows.splice(i - 1, 0, r); drawSettingsLists(); };
+    row.querySelector('[data-k="del"]').onclick = () => deleteCategory(r, origsOf(r), rowCount(r));
   });
-
   $("setTags").innerHTML = SET.tags.map((t, i) => `
     <div class="card" data-i="${i}" style="padding:10px 12px;margin-bottom:8px">
       <div class="row">
@@ -1664,17 +1706,60 @@ function drawSettingsLists() {
   });
 }
 
+// מחיקת קטגוריה: אם יש בה שאלות – שואלים לאיזו קטגוריה להעביר אותן
+function deleteCategory(row, origs, n) {
+  const others = SET.rows.filter((x) => x !== row && x.name.trim());
+  const remove = (target) => {
+    SET.rows = SET.rows.filter((x) => x !== row);
+    origs.forEach((o) => (target ? SET.moves.set(o, target) : SET.moves.delete(o)));
+    if (SET.defaultCategory === row.name) SET.defaultCategory = (target || others[0])?.name || "";
+    drawSettingsLists();
+  };
+  if (!n) { if (!row.name.trim() || confirm(`למחוק את הקטגוריה "${row.name}"?`)) remove(null); return; }
+  if (!others.length) return toast("אי אפשר למחוק את הקטגוריה היחידה – קודם מוסיפים קטגוריה אחרת", "bad");
+  openModal(`
+    <div class="head"><h2>מחיקת הקטגוריה "${esc(row.name)}"</h2><button class="close" data-close aria-label="סגירה">×</button></div>
+    <p>בקטגוריה הזו יש <b>${n === 1 ? "שאלה אחת" : n + " שאלות"}</b>${origs.length > 1 ? " (כולל שאלות שכבר הועברו אליה)" : ""}. לאיזו קטגוריה להעביר אותן?</p>
+    <div class="field"><label for="catMoveTo">להעביר לקטגוריה</label>
+      <select id="catMoveTo">${others.map((x, i) => `<option value="${i}">${esc(x.name)}</option>`).join("")}</select></div>
+    <p class="small muted">ההעברה תתבצע (גם במאגר השו"ת שפורסם) בלחיצה על "שמירת ההגדרות".</p>
+    <div class="row"><button class="primary" id="catMoveOk">מחיקה והעברה</button><button data-close>ביטול</button></div>`, () => {
+    $("catMoveOk").onclick = () => { remove(others[Number($("catMoveTo").value)]); closeModal(); };
+  });
+}
+
 async function saveSettings() {
-  const cats = [...new Set(SET.categories.map((c) => c.trim()).filter(Boolean))];
+  const cats = [...new Set(SET.rows.map((r) => r.name.trim()).filter(Boolean))];
+  if (cats.length !== SET.rows.filter((r) => r.name.trim()).length) return toast("יש שתי קטגוריות עם אותו שם", "bad");
   if (!cats.length) return toast("צריך לפחות קטגוריה אחת", "bad");
   const names = SET.tags.map((t) => t.name.trim()).filter(Boolean);
   if (new Set(names).size !== names.length) return toast("יש שתי תגיות עם אותו שם", "bad");
-  const data = normTaxonomy({ categories: cats, defaultCategory: SET.defaultCategory, tags: SET.tags });
+  const data = normTaxonomy({ categories: cats, defaultCategory: cats.includes(SET.defaultCategory?.trim()) ? SET.defaultCategory.trim() : cats[0], tags: SET.tags });
+  // שם ישן ← שם חדש: קטגוריות ששמן שונה, וקטגוריות שנמחקו והשאלות שלהן עוברות
+  const remap = new Map();
+  SET.rows.forEach((r) => { if (r.orig && r.name.trim() && r.name.trim() !== r.orig) remap.set(r.orig, r.name.trim()); });
+  SET.moves.forEach((t, o) => { if (t.name.trim()) remap.set(o, t.name.trim()); });
+  const qs = [...S.questions.values()].filter((q) => remap.has(q.topic));
   try {
+    let pub = [];
+    for (const old of remap.keys()) { const snap = await getDocs(query(collection(db, "publicQA"), where("topic", "==", old))); snap.forEach((d) => pub.push([d.id, remap.get(old)])); }
+    const ops = [...qs.map((q) => [doc(db, "questions", q.id), remap.get(q.topic)]), ...pub.map(([id, t]) => [doc(db, "publicQA", id), t])];
+    for (let i = 0; i < ops.length; i += 400) {
+      const b = writeBatch(db);
+      ops.slice(i, i + 400).forEach(([r, topic]) => b.update(r, { topic }));
+      await b.commit();
+    }
+    // רב לפי קטגוריה (התראות שו"ת) – עובר עם שינוי השם
+    const byCat = S.qaNotify?.byCategory;
+    if (byCat && [...remap.keys()].some((k) => byCat[k])) {
+      const nb = {};
+      Object.entries(byCat).forEach(([k, v]) => { const nk = remap.get(k) || k; if (cats.includes(nk) && !nb[nk]) nb[nk] = v; });
+      await setDoc(doc(db, "settings", "qaNotify"), { byCategory: nb }, { merge: true });
+    }
     await setDoc(doc(db, "settings", "taxonomy"), { ...data, updatedBy: myEmail(), updatedAt: serverTimestamp() });
-    audit("עדכון קטגוריות ותגיות");
+    audit("עדכון קטגוריות ותגיות", "", remap.size ? [...remap].map(([a, b]) => `${a} ← ${b}`).join(", ") + ` (${qs.length} שאלות)` : "");
     S.tax = data;
-    toast("ההגדרות נשמרו", "good");
+    toast(qs.length ? `ההגדרות נשמרו ו-${qs.length} שאלות עודכנו` : "ההגדרות נשמרו", "good");
     renderSettings(true);
   } catch (e) { toast("השמירה נכשלה: " + e.code, "bad"); }
 }
@@ -1740,12 +1825,15 @@ function qaNotifyCard() {
     <label class="check"><input type="checkbox" id="qnNew" ${n.notifyNew !== false && S.qaNotify ? "checked" : ""}> <span><b>מייל על כל שאלה חדשה</b> – לרב של הקטגוריה (או לרשימה למטה)</span></label>
     <label class="check"><input type="checkbox" id="qnRemind" ${n.remind !== false && S.qaNotify ? "checked" : ""}> <span><b>תזכורת על שאלה שלא נענתה</b> אחרי</span>
       <input type="number" id="qnDays" min="1" max="30" value="${n.remindDays || 3}" style="width:70px" aria-label="מספר ימים"> <span>ימים (ושוב כל אותו מספר ימים)</span></label>
-    <div class="grid2" style="margin-top:10px">
-      <div><h3>מי מקבל (ברירת מחדל)</h3>${checks("qnto", n.emails) || '<p class="muted small">אין רבנים ברשימת המשתמשים</p>'}</div>
+    <div class="field" style="margin-top:10px;max-width:640px"><label for="qnDefRabbi"><b>משיב ברירת מחדל</b> – יופיע אוטומטית כ"רב משיב" בכל שאלה שלא שויכה (אלא אם לקטגוריה יש רב משלה)</label>
+      <select id="qnDefRabbi"><option value="">ללא</option>${rabbis().sort((a, b) => userName(a.id).localeCompare(userName(b.id), "he")).map((u) => `<option value="${esc(u.id)}" ${n.defaultRabbi === u.id ? "selected" : ""}>${esc(userName(u.id))}</option>`).join("")}</select></div>
+    <div class="grid3" style="margin-top:10px">
+      <div><h3>מי מקבל התראות (כשאין רב לקטגוריה)</h3>${checks("qnto", n.emails) || '<p class="muted small">אין רבנים ברשימת המשתמשים</p>'}</div>
+      <div><h3>עותק מכל שאלה חדשה גם ל:</h3><p class="small muted" style="margin-top:0">מקבלים מייל על כל שאלה, בלי קשר למי שמשיב</p>${checks("qnnew", n.newAlso ?? people.filter((u) => u.role === "admin").map((u) => u.id))}</div>
       <div><h3>עותק מכל תזכורת גם ל:</h3>${checks("qncc", n.remindAlso)}</div>
     </div>
     <h3 style="margin-top:10px">רב לפי קטגוריה (רשות)</h3>
-    <p class="small muted" style="margin-top:0">שאלה שכבר שויכה לרב – ההתראות הולכות אליו. אחרת – לרב של הקטגוריה, ואם אין – לברירת המחדל.</p>
+    <p class="small muted" style="margin-top:0">שאלה שכבר שויכה לרב – ההתראות הולכות אליו. אחרת – לרב של הקטגוריה, ואם אין – ל"מי מקבל" (ואם לא סומן שם אף אחד – למשיב ברירת המחדל). הרב של הקטגוריה גם יופיע כמשיב המוצע בשאלה.</p>
     <div class="grid2">${S.tax.categories.map((cat) => `<div class="field"><label>${esc(cat)}</label><select data-qncat="${esc(cat)}" aria-label="רב לקטגוריה ${esc(cat)}"><option value="">ברירת המחדל</option>
       ${people.map((u) => `<option value="${esc(u.id)}" ${(n.byCategory?.[cat] || [])[0] === u.id ? "selected" : ""}>${esc(userName(u.id))}</option>`).join("")}</select></div>`).join("")}</div>
     <button id="qnSave">שמירת הגדרות ההתראות</button>
@@ -1758,9 +1846,9 @@ function bindQaNotify() {
     const byCategory = {};
     document.querySelectorAll("[data-qncat]").forEach((sel) => { if (sel.value) byCategory[sel.dataset.qncat] = [sel.value]; });
     const data = { notifyNew: $("qnNew").checked, remind: $("qnRemind").checked, remindDays: Math.max(1, Number($("qnDays").value) || 3),
-      emails: picked("qnto"), remindAlso: picked("qncc"), byCategory, updatedBy: myEmail(), updatedAt: serverTimestamp() };
+      emails: picked("qnto"), remindAlso: picked("qncc"), newAlso: picked("qnnew"), defaultRabbi: $("qnDefRabbi").value, byCategory, updatedBy: myEmail(), updatedAt: serverTimestamp() };
     if (!S.qaNotify?.enabledAt) data.enabledAt = serverTimestamp();
-    if ((data.notifyNew || data.remind) && !data.emails.length && !Object.keys(byCategory).length) return toast("נא לבחור לפחות נמען אחד", "bad");
+    if ((data.notifyNew || data.remind) && !data.emails.length && !data.defaultRabbi && !data.newAlso.length && !Object.keys(byCategory).length) return toast("נא לבחור לפחות נמען אחד", "bad");
     try { await setDoc(doc(db, "settings", "qaNotify"), data, { merge: true }); toast("נשמר", "good"); audit("עדכון התראות שו\"ת"); }
     catch (e) { toast("השמירה נכשלה: " + e.code, "bad"); }
   };
