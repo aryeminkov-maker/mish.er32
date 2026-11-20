@@ -143,7 +143,7 @@
 
 **אם במסך מופיעה שגיאה** כמו "API has not been used in project": ב-Firebase ← Project settings מעתיקים את **Project number**. ב-Apps Script ← Project Settings ← **Google Cloud Platform (GCP) Project** ← Change project ← מדביקים ← Set project, ומריצים שוב את **setup**. אם הגיבוי נכשל עם שגיאה דומה על Drive – באותו פרויקט ב-console.cloud.google.com ← APIs & Services ← Library ← **Google Drive API** ← Enable.
 
-**מגבלות:** חשבון Gmail רגיל שולח עד כ-500 מיילים ביום. כל נמען מקבל מייל נפרד, ולכן הכתובות לא נחשפות לאחרים. לדיוור שיווקי רחב (אלפי נמענים) עדיף שירות דיוור ייעודי.
+**מגבלות:** חשבון Gmail רגיל שולח עד 100 נמענים ביום דרך סקריפט (Google Workspace: 1,500). מה שלא נשלח ממשיך אוטומטית למחרת. כל נמען מקבל מייל נפרד, ולכן הכתובות לא נחשפות לאחרים. לדיוור שיווקי רחב (אלפי נמענים) עדיף שירות דיוור ייעודי.
 
 ## הערות
 

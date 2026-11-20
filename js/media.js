@@ -1,9 +1,9 @@
 // ===== מודעה ורקעי זום להשתלמות – לפי העיצובים השמורים =====
 // סדר העדיפות: עיצוב ייחודי להשתלמות (courseMedia) ← תבנית כללית (settings) ← ברירת מחדל
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { db } from "./common.js?v=20261104";
-import { fmtIso, parseIso, HEB_DAYS, toMin } from "./util.js?v=20261104";
-import { defaultAd, defaultBg, exportPng } from "./designer.js?v=20261104";
+import { db } from "./common.js?v=20261105";
+import { fmtIso, parseIso, HEB_DAYS, toMin } from "./util.js?v=20261105";
+import { defaultAd, defaultBg, exportPng } from "./designer.js?v=20261105";
 
 const safe = async (p) => { try { const s = await p; return s.exists() ? s.data() : null; } catch { return null; } };
 

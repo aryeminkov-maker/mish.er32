@@ -295,32 +295,35 @@ function qaNotifications_(site) {
   const rec = function (emails) {
     const seen = {};
     return (emails || []).map(function (e) { return String(e).toLowerCase().trim(); }).filter(function (e) { if (!e || seen[e]) return false; seen[e] = true; return true; })
-      .map(function (e) { const n = users[e] && users[e].name || ""; return { email: e, name: n, firstName: n.split(" ")[0] || "", vars: {} }; });
+      .map(function (e) { const n = users[e] && users[e].name || ""; return { email: e, name: n, firstName: n.split(" ")[0] || "", vars: { "פנייה": n ? " " + n : "" } }; });
   };
-  const forTopic = function (topic) {
-    const m = cfg.byCategory || {};
-    if (m[topic] && m[topic].length) return m[topic];
-    if (cfg.emails && cfg.emails.length) return cfg.emails;
-    return cfg.defaultRabbi ? [cfg.defaultRabbi] : [];
-  };
+  // כתובת המכון לקבלת התראות (ברירת מחדל: החשבון שממנו הסקריפט רץ)
+  const splitEmails = function (v) { return (Array.isArray(v) ? v : String(v || "").split(/[,;\s]+/)).map(function (e) { return String(e).toLowerCase().trim(); }).filter(function (e) { return /@/.test(e); }); };
+  const instTo = splitEmails(cfg.newTo).length ? splitEmails(cfg.newTo) : [Session.getEffectiveUser().getEmail()];
+  // רב נוסף: רב שהשאלה שויכה אליו, או הרב שהוגדר לקטגוריה
+  const extraRabbis = function (d) { const m = cfg.byCategory || {}; return splitEmails(d.rabbiEmail ? [d.rabbiEmail] : (m[d.topic] || [])).filter(function (e) { return instTo.indexOf(e) < 0; }); };
+  const nameOf = function (e) { return users[e] && users[e].name || e; };
   const link = site ? site + "index.html#questions" : "";
-  // אם עוד לא נשמרה הגדרה – מנהלי המערכת מקבלים עותק מכל שאלה חדשה
-  const newAlso = cfg.newAlso !== undefined && cfg.newAlso !== null ? cfg.newAlso
-    : Object.keys(users).filter(function (e) { return users[e] && users[e].role === "admin"; });
+  const newAlso = splitEmails(cfg.newAlso || []);
   const open = ["new", "in_progress"].reduce(function (acc, st) {
     return acc.concat(runQuery_({ from: [{ collectionId: "questions" }], where: { fieldFilter: { field: { fieldPath: "status" }, op: "EQUAL", value: { stringValue: st } } } }));
   }, []);
-  // 1. שאלה חדשה
+  // 1. שאלה חדשה – לכתובת המכון (ולמי שסומן לקבל עותק), ובנוסף לרב של הקטגוריה אם הוגדר
   if (cfg.notifyNew !== false) {
     open.forEach(function (q) {
       const d = q.data;
       if (d.status !== "new" || d.notifiedAt || (Date.parse(d.createdAt) || 0) < since) return;
       patch_(q.path, { notifiedAt: new Date() });
-      // הרב/המשיב + עותק לכל מי שסומן "עותק מכל שאלה חדשה" (למשל מנהל המערכת)
-      const to = (d.rabbiEmail ? [d.rabbiEmail] : forTopic(d.topic)).concat(newAlso);
-      enqueue_({ site: site, internal: true, kind: "qa-new", title: "התראה על שאלה חדשה", recipients: rec(to),
-        subject: "שאלה חדשה" + (d.topic ? " בנושא " + d.topic : "") + " – שו\"ת משפטי ארץ",
-        body: "שלום {שם פרטי},\n\nהתקבלה שאלה חדשה" + (d.topic ? " בקטגוריה \"" + d.topic + "\"" : "") + ":\n\n" + String(d.text || "").slice(0, 1500)
+      const rabbis = extraRabbis(d);
+      const asker = [d.firstName, d.lastName].filter(Boolean).join(" ");
+      const subject = "שאלה חדשה" + (d.topic ? " בנושא " + d.topic : "") + " – שו\"ת משפטי ארץ";
+      const qText = String(d.text || "").slice(0, 1500);
+      enqueue_({ site: site, internal: true, kind: "qa-new", title: "התראה על שאלה חדשה", recipients: rec(instTo.concat(newAlso)), subject: subject,
+        body: "שלום,\n\nהתקבלה שאלה חדשה" + (d.topic ? " בקטגוריה \"" + d.topic + "\"" : "") + (asker ? " מאת " + asker : "") + (d.email ? " (" + d.email + ")" : "") + ":\n\n" + qText
+          + (rabbis.length ? "\n\n**השאלה נשלחה בנוסף גם ל" + rabbis.map(nameOf).join(" ול") + ".**" : "")
+          + "\n\nלמענה במערכת: " + link + "\n\nבברכה,\nמערכת " + ORG_NAME });
+      if (rabbis.length) enqueue_({ site: site, internal: true, kind: "qa-new", title: "שאלה חדשה לרב", recipients: rec(rabbis), subject: subject,
+        body: "שלום{פנייה},\n\nהתקבלה שאלה חדשה" + (d.topic ? " בקטגוריה \"" + d.topic + "\"" : "") + ":\n\n" + qText
           + "\n\nלמענה במערכת: " + link + "\n\nבברכה,\nמערכת " + ORG_NAME });
     });
   }
@@ -332,7 +335,7 @@ function qaNotifications_(site) {
     open.forEach(function (q) {
       const d = q.data;
       if ((Date.parse(d.createdAt) || Date.now()) > cutoff || (Date.parse(d.lastRemindAt) || 0) > cutoff || (Date.parse(d.createdAt) || 0) < since) return;
-      const to = (d.rabbiEmail ? [d.rabbiEmail] : forTopic(d.topic)).concat(cfg.remindAlso || []);
+      const to = extraRabbis(d).concat(instTo, splitEmails(cfg.remindAlso || []));
       to.forEach(function (e) { e = String(e).toLowerCase(); byTo[e] = byTo[e] || []; if (byTo[e].indexOf(q) < 0) byTo[e].push(q); });
       patch_(q.path, { lastRemindAt: new Date() });
     });
@@ -340,7 +343,7 @@ function qaNotifications_(site) {
       const list = byTo[e];
       enqueue_({ site: site, internal: true, kind: "qa-remind", title: "תזכורת על שאלות פתוחות", recipients: rec([e]),
         subject: (list.length === 1 ? "שאלה אחת ממתינה" : list.length + " שאלות ממתינות") + " למענה – שו\"ת משפטי ארץ",
-        body: "שלום {שם פרטי},\n\n" + (list.length === 1 ? "שאלה אחת ממתינה" : list.length + " שאלות ממתינות") + " למענה יותר מ-" + days + " ימים:\n\n"
+        body: "שלום{פנייה},\n\n" + (list.length === 1 ? "שאלה אחת ממתינה" : list.length + " שאלות ממתינות") + " למענה יותר מ-" + days + " ימים:\n\n"
           + list.map(function (q) { return "• " + (q.data.topic ? "[" + q.data.topic + "] " : "") + String(q.data.text || "").replace(/\s+/g, " ").slice(0, 140); }).join("\n")
           + "\n\nלמענה במערכת: " + link + "\n\nבברכה,\nמערכת " + ORG_NAME });
     });

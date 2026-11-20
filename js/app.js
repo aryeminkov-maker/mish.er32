@@ -9,14 +9,14 @@ import {
 import {
   db, auth, configReady, esc, normEmail, normPhone, toDate, fmtDate, toast, setupMissingNotice,
   DEFAULT_TAXONOMY, normTaxonomy, autoTagsFor, readWorkbook, sanitizeRich, plainToRich, richToText, richToMarkup
-} from "./common.js?v=20261104";
-import { renderCourses, renderCalendar, courseSummary } from "./courses.js?v=20261104";
-import { renderResearch, researchSummary } from "./research.js?v=20261104";
-import { composeMail, queueMail, schedulerState } from "./mail.js?v=20261104";
-import { renderBooks } from "./books.js?v=20261104";
-import { renderReports } from "./reports.js?v=20261104";
-import { renderSelfTest } from "./selftest.js?v=20261104";
-import { renderProjects } from "./projects.js?v=20261104";
+} from "./common.js?v=20261105";
+import { renderCourses, renderCalendar, courseSummary } from "./courses.js?v=20261105";
+import { renderResearch, researchSummary } from "./research.js?v=20261105";
+import { composeMail, queueMail, schedulerState } from "./mail.js?v=20261105";
+import { renderBooks } from "./books.js?v=20261105";
+import { renderReports } from "./reports.js?v=20261105";
+import { renderSelfTest } from "./selftest.js?v=20261105";
+import { renderProjects } from "./projects.js?v=20261105";
 
 // ---------- קבועים ----------
 const ROLE_LABEL = {
@@ -1820,21 +1820,23 @@ function qaNotifyCard() {
   const n = S.qaNotify || {};
   const people = [...S.users.values()].filter((u) => ["rabbi", "head", "admin", "staff"].includes(u.role)).sort((a, b) => userName(a.id).localeCompare(userName(b.id), "he"));
   const checks = (name, sel) => people.map((u) => `<label class="check"><input type="checkbox" data-${name}="${esc(u.id)}" ${(sel || []).includes(u.id) ? "checked" : ""}> <span>${esc(userName(u.id))} <span class="small muted">(${ROLE_LABEL[u.role]})</span></span></label>`).join("");
+  const inst = n.newTo ?? (S.scheduler?.account || "");
   return `<div class="card" style="margin-top:16px">
     <h2>התראות שו"ת במייל</h2>
-    <label class="check"><input type="checkbox" id="qnNew" ${n.notifyNew !== false && S.qaNotify ? "checked" : ""}> <span><b>מייל על כל שאלה חדשה</b> – לרב של הקטגוריה (או לרשימה למטה)</span></label>
+    <label class="check"><input type="checkbox" id="qnNew" ${n.notifyNew !== false && S.qaNotify ? "checked" : ""}> <span><b>מייל על כל שאלה חדשה</b></span></label>
+    <div class="field" style="max-width:640px;margin:6px 0 10px"><label for="qnTo"><b>כתובת לקבלת התראות על שאלות חדשות</b> (ברירת מחדל – בדרך כלל המייל של המכון. אפשר כמה כתובות, מופרדות בפסיק)</label>
+      <input id="qnTo" dir="ltr" value="${esc(inst)}" placeholder="dintora@gmail.com"></div>
     <label class="check"><input type="checkbox" id="qnRemind" ${n.remind !== false && S.qaNotify ? "checked" : ""}> <span><b>תזכורת על שאלה שלא נענתה</b> אחרי</span>
-      <input type="number" id="qnDays" min="1" max="30" value="${n.remindDays || 3}" style="width:70px" aria-label="מספר ימים"> <span>ימים (ושוב כל אותו מספר ימים)</span></label>
-    <div class="field" style="margin-top:10px;max-width:640px"><label for="qnDefRabbi"><b>משיב ברירת מחדל</b> – יופיע אוטומטית כ"רב משיב" בכל שאלה שלא שויכה (אלא אם לקטגוריה יש רב משלה)</label>
+      <input type="number" id="qnDays" min="1" max="30" value="${n.remindDays || 3}" style="width:70px" aria-label="מספר ימים"> <span>ימים (ושוב כל אותו מספר ימים) – לכתובת שלמעלה ולרב של השאלה</span></label>
+    <div class="field" style="margin-top:10px;max-width:640px"><label for="qnDefRabbi"><b>משיב ברירת מחדל</b> – יופיע אוטומטית כ"רב משיב" בכל שאלה שלא שויכה (לא מקבל מייל על שאלות חדשות)</label>
       <select id="qnDefRabbi"><option value="">ללא</option>${rabbis().sort((a, b) => userName(a.id).localeCompare(userName(b.id), "he")).map((u) => `<option value="${esc(u.id)}" ${n.defaultRabbi === u.id ? "selected" : ""}>${esc(userName(u.id))}</option>`).join("")}</select></div>
-    <div class="grid3" style="margin-top:10px">
-      <div><h3>מי מקבל התראות (כשאין רב לקטגוריה)</h3>${checks("qnto", n.emails) || '<p class="muted small">אין רבנים ברשימת המשתמשים</p>'}</div>
-      <div><h3>עותק מכל שאלה חדשה גם ל:</h3><p class="small muted" style="margin-top:0">מקבלים מייל על כל שאלה, בלי קשר למי שמשיב</p>${checks("qnnew", n.newAlso ?? people.filter((u) => u.role === "admin").map((u) => u.id))}</div>
-      <div><h3>עותק מכל תזכורת גם ל:</h3>${checks("qncc", n.remindAlso)}</div>
+    <div class="grid2" style="margin-top:10px">
+      <div><h3>עותק מכל שאלה חדשה גם ל:</h3><p class="small muted" style="margin-top:0">בנוסף לכתובת שלמעלה (רשות)</p>${checks("qnnew", n.newAlso)}</div>
+      <div><h3>עותק מכל תזכורת גם ל:</h3><p class="small muted" style="margin-top:0">(רשות)</p>${checks("qncc", n.remindAlso)}</div>
     </div>
-    <h3 style="margin-top:10px">רב לפי קטגוריה (רשות)</h3>
-    <p class="small muted" style="margin-top:0">שאלה שכבר שויכה לרב – ההתראות הולכות אליו. אחרת – לרב של הקטגוריה, ואם אין – ל"מי מקבל" (ואם לא סומן שם אף אחד – למשיב ברירת המחדל). הרב של הקטגוריה גם יופיע כמשיב המוצע בשאלה.</p>
-    <div class="grid2">${S.tax.categories.map((cat) => `<div class="field"><label>${esc(cat)}</label><select data-qncat="${esc(cat)}" aria-label="רב לקטגוריה ${esc(cat)}"><option value="">ברירת המחדל</option>
+    <h3 style="margin-top:10px">רב נוסף לפי קטגוריה (רשות)</h3>
+    <p class="small muted" style="margin-top:0">שאלה בקטגוריה שהוגדר לה רב – נשלחת <b>גם</b> אליו (בנוסף לכתובת שלמעלה), ובמייל לכתובת שלמעלה יצוין שהשאלה נשלחה גם אליו. הוא גם יופיע כמשיב המוצע בשאלה. שאלה ששויכה לרב – התזכורות עליה הולכות גם אליו.</p>
+    <div class="grid2">${S.tax.categories.map((cat) => `<div class="field"><label>${esc(cat)}</label><select data-qncat="${esc(cat)}" aria-label="רב לקטגוריה ${esc(cat)}"><option value="">רק לכתובת שלמעלה</option>
       ${people.map((u) => `<option value="${esc(u.id)}" ${(n.byCategory?.[cat] || [])[0] === u.id ? "selected" : ""}>${esc(userName(u.id))}</option>`).join("")}</select></div>`).join("")}</div>
     <button id="qnSave">שמירת הגדרות ההתראות</button>
     <p class="small muted">ההתראות חלות על שאלות שמגיעות מרגע השמירה הראשונה (לא על שאלות ישנות).</p>
@@ -1846,9 +1848,11 @@ function bindQaNotify() {
     const byCategory = {};
     document.querySelectorAll("[data-qncat]").forEach((sel) => { if (sel.value) byCategory[sel.dataset.qncat] = [sel.value]; });
     const data = { notifyNew: $("qnNew").checked, remind: $("qnRemind").checked, remindDays: Math.max(1, Number($("qnDays").value) || 3),
-      emails: picked("qnto"), remindAlso: picked("qncc"), newAlso: picked("qnnew"), defaultRabbi: $("qnDefRabbi").value, byCategory, updatedBy: myEmail(), updatedAt: serverTimestamp() };
+      newTo: $("qnTo").value.split(/[,;\s]+/).map((x) => x.trim().toLowerCase()).filter(Boolean).join(", "), remindAlso: picked("qncc"), newAlso: picked("qnnew"), defaultRabbi: $("qnDefRabbi").value, byCategory, updatedBy: myEmail(), updatedAt: serverTimestamp() };
     if (!S.qaNotify?.enabledAt) data.enabledAt = serverTimestamp();
-    if ((data.notifyNew || data.remind) && !data.emails.length && !data.defaultRabbi && !data.newAlso.length && !Object.keys(byCategory).length) return toast("נא לבחור לפחות נמען אחד", "bad");
+    const bad = data.newTo.split(", ").filter((x) => x && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x));
+    if (bad.length) { $("qnTo").focus(); return toast("כתובת מייל לא תקינה: " + bad.join(", "), "bad"); }
+    if ((data.notifyNew || data.remind) && !data.newTo) { $("qnTo").focus(); return toast("נא למלא כתובת לקבלת ההתראות", "bad"); }
     try { await setDoc(doc(db, "settings", "qaNotify"), data, { merge: true }); toast("נשמר", "good"); audit("עדכון התראות שו\"ת"); }
     catch (e) { toast("השמירה נכשלה: " + e.code, "bad"); }
   };
