@@ -275,7 +275,17 @@ function archiveReset() {
 function archSheet_() {
   const props = PropertiesService.getScriptProperties();
   const id = props.getProperty("ARCH_SHEET");
-  if (id) try { return SpreadsheetApp.openById(id); } catch (e) { /* נוצר מחדש */ }
+  if (id) {
+    // גיליון גדול נפתח לפעמים לאט – כמה ניסיונות לפני שמוותרים (לא יוצרים גיליון חדש בגלל עיכוב)
+    for (let t = 0; t < 4; t++) {
+      try { return SpreadsheetApp.openById(id); }
+      catch (e) {
+        if (!/זמן|timed out|time/i.test(String(e.message)) && t === 0) break; // הגיליון נמחק – ייווצר חדש
+        if (t === 3) throw new Error("הגיליון לא נפתח (עומס זמני בגוגל). נסו שוב בעוד כמה דקות.");
+        Utilities.sleep(5000 * (t + 1));
+      }
+    }
+  }
   const ss = SpreadsheetApp.create("ייבוא שו\"ת מאתר המכון");
   const sh = ss.getSheets()[0].setName("שו\"ת");
   sh.getRange(1, 1, 1, ARCH_COLS.length).setValues([ARCH_COLS]).setFontWeight("bold");
@@ -463,7 +473,7 @@ function archiveImportPreview() {
   const fresh = plan.filter(function (x) { return !existing["dintora-" + x.id]; }).length;
   const tax = (get_("settings/taxonomy") || {}).categories || [];
   const order = plan.length ? plan[0].order : [];
-  const missing = order.filter(function (c) { return count[c] && tax.indexOf(c) < 0; });
+  const missing = order.filter(function (c) { return tax.indexOf(c) < 0; });
   console.log("ייבוא מתוכנן: " + plan.length + " שו\"תים (" + fresh + " חדשים, " + (plan.length - fresh) + " כבר במערכת וידולגו).\n"
     + order.filter(function (c) { return count[c]; }).map(function (c) { return "• " + c + ": " + count[c]; }).join("\n")
     + (missing.length ? "\nקטגוריות שיתווספו למערכת: " + missing.join(", ") : "")
@@ -477,12 +487,15 @@ function archiveImport() {
   const existing = archExistingIds_();
   const todo = plan.filter(function (x) { return !existing["dintora-" + x.id]; });
   // קטגוריות חסרות – מוסיפים לרשימת הקטגוריות במערכת (לפני "אחר" אם קיים)
+  // רשימת הקטגוריות במערכת: לפי סדר ההצעה, ואחריהן קטגוריות קיימות אחרות (למשל "דיני ממונות") – לפני "אחר".
+  // קטגוריה קיימת לא נמחקת כאן: מוחקים אותה ממסך ההגדרות, שם בוחרים לאן להעביר את השאלות שלה.
   const taxDoc = get_("settings/taxonomy") || {};
-  const tax = (taxDoc.categories || []).slice();
-  const used = {}; todo.forEach(function (x) { used[x.category] = 1; });
+  const old = (taxDoc.categories || []).slice();
   const order = plan.length ? plan[0].order : [];
-  order.forEach(function (c) { if (used[c] && tax.indexOf(c) < 0) { const k = tax.indexOf("אחר"); if (k >= 0 && c !== "אחר") tax.splice(k, 0, c); else tax.push(c); } });
-  if (tax.length !== (taxDoc.categories || []).length) patch_("settings/taxonomy", { categories: tax, updatedAt: new Date(), updatedBy: "ייבוא מהאתר" });
+  const tax = order.filter(function (c) { return c !== "אחר"; })
+    .concat(old.filter(function (c) { return order.indexOf(c) < 0 && c !== "אחר"; }))
+    .concat(["אחר"]);
+  if (JSON.stringify(tax) !== JSON.stringify(old)) patch_("settings/taxonomy", { categories: tax, updatedAt: new Date(), updatedBy: "ייבוא מהאתר" });
   const now = new Date();
   // סדר במאגר: שאלות חדשות מהמערכת יופיעו לפני הארכיון; בתוך הארכיון – החדשות קודם (לפי מספר הדף)
   const archDate = function (id) { return new Date(Date.UTC(2010, 0, 1) + id * 3600 * 1000); };

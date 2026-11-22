@@ -41,13 +41,14 @@ function render() {
   $("list").innerHTML = list.map((x) => `
     <details class="qa" id="q-${x.id}">
       <summary>${x.title ? `<b>${esc(x.title)}</b>` : esc(x.question.length > 140 ? x.question.slice(0, 140) + "…" : x.question)}</summary>
-      <div class="small muted" style="margin-top:6px">${esc(x.topic || "")}${x.publishedAt && !x.archive ? " · " + fmtDate(x.publishedAt) : ""} ${(x.tags || []).filter((g) => g !== "ארכיון").map((g) => `<span class="badge">${esc(g)}</span>`).join("")}</div>
+      <div class="small muted" style="margin-top:6px">${esc(x.topic || "")}${x.publishedAt && !x.archive ? " · " + fmtDate(x.publishedAt) : ""} ${(x.tags || []).filter((g) => g !== "ארכיון").map((g) => `<button type="button" class="badge tag-btn" data-tagf="${esc(g)}" title="כל השאלות עם התגית">${esc(g)}</button>`).join("")}</div>
       ${x.title || x.question.length > 140 ? `<h3 class="qa-h">השאלה</h3><p class="pre">${esc(x.question)}</p><h3 class="qa-h">התשובה</h3>` : ""}
       ${x.askerName ? `<p class="small muted" style="margin:4px 0 0">שאל/ה: ${esc(x.askerName)}</p>` : ""}
       <div class="ans ${x.answerHtml ? "rich" : ""}">${x.answerHtml ? sanitizeRich(x.answerHtml) : esc(x.answer)}${x.rabbiName ? `<p class="small muted">— ${esc(x.rabbiName)}</p>` : ""}</div>
       <div class="row" style="margin-top:8px"><a class="share-wa" href="${waLink(x)}" target="_blank" rel="noopener">${WA_ICON} שיתוף בוואטסאפ</a>
         <button class="link small" data-copylink="${esc(x.id)}">העתקת קישור</button></div>
     </details>`).join("") || `<p class="muted">לא נמצאו שאלות.</p>`;
+  document.querySelectorAll("[data-tagf]").forEach((b) => (b.onclick = () => { $("search").value = b.dataset.tagf; render(); window.scrollTo({ top: 0, behavior: "smooth" }); }));
   document.querySelectorAll("[data-copylink]").forEach((b) => (b.onclick = async () => {
     try { await navigator.clipboard.writeText(qUrl({ id: b.dataset.copylink })); b.textContent = "הקישור הועתק ✓"; } catch { /* */ }
   }));

@@ -438,3 +438,4 @@ details.qa .ans.rich { white-space: normal; }
 .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0 16px; }
 @media (max-width: 760px) { .grid3 { grid-template-columns: 1fr; } }
 .qa-h { font-size: 1rem; margin: 12px 0 4px; color: var(--ink-2); }
+.tag-btn { cursor: pointer; border: 0; font: inherit; font-size: .8rem; } .tag-btn:hover { text-decoration: underline; }
