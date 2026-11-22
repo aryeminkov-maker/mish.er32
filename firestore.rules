@@ -66,7 +66,8 @@ service cloud.firestore {
     // ---------- שו"ת ----------
     match /questions/{id} {
       allow create: if isStaff() || (
-        request.resource.data.keys().hasOnly(['firstName', 'lastName', 'email', 'phone', 'topic', 'text', 'consentEmail', 'status', 'contactId', 'origin', 'createdAt'])
+        request.resource.data.keys().hasOnly(['firstName', 'lastName', 'email', 'phone', 'topic', 'text', 'consentEmail', 'status', 'contactId', 'origin', 'createdAt', 'refId', 'refTitle'])
+        && (!('refId' in request.resource.data) || (request.resource.data.refId is string && request.resource.data.refId.size() <= 60 && request.resource.data.refTitle is string && request.resource.data.refTitle.size() <= 200))
         && request.resource.data.status == 'new'
         && request.resource.data.contactId == null
         && request.resource.data.origin == 'טופס באתר'
@@ -85,6 +86,15 @@ service cloud.firestore {
     match /publicQA/{id} {
       allow read: if true;
       allow write: if isStaff();
+    }
+
+    // חיפושים במאגר שלא החזירו תוצאות – גולשים רק מוסיפים, הצוות קורא ומוחק
+    match /qaSearchMisses/{id} {
+      allow read, delete: if isStaff();
+      allow create: if request.resource.data.keys().hasOnly(['q', 'topic', 'at'])
+        && request.resource.data.q is string && request.resource.data.q.size() >= 3 && request.resource.data.q.size() <= 100
+        && request.resource.data.topic is string && request.resource.data.topic.size() <= 60
+        && request.resource.data.at == request.time;
     }
 
     // צפיות בשאלות במאגר: כל גולש יכול רק להוסיף 1 (לשאלה שקיימת במאגר). רק הצוות רואה את המספרים.

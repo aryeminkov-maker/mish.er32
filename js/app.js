@@ -9,14 +9,15 @@ import {
 import {
   db, auth, configReady, esc, normEmail, normPhone, toDate, fmtDate, toast, setupMissingNotice,
   DEFAULT_TAXONOMY, normTaxonomy, autoTagsFor, readWorkbook, sanitizeRich, plainToRich, richToText, richToMarkup
-} from "./common.js?v=20261107";
-import { renderCourses, renderCalendar, courseSummary } from "./courses.js?v=20261107";
-import { renderResearch, researchSummary } from "./research.js?v=20261107";
-import { composeMail, queueMail, schedulerState } from "./mail.js?v=20261107";
-import { renderBooks } from "./books.js?v=20261107";
-import { renderReports } from "./reports.js?v=20261107";
-import { renderSelfTest } from "./selftest.js?v=20261107";
-import { renderProjects } from "./projects.js?v=20261107";
+} from "./common.js?v=20261108";
+import { renderCourses, renderCalendar, courseSummary } from "./courses.js?v=20261108";
+import { renderResearch, researchSummary } from "./research.js?v=20261108";
+import { composeMail, queueMail, schedulerState } from "./mail.js?v=20261108";
+import { renderBooks } from "./books.js?v=20261108";
+import { renderReports } from "./reports.js?v=20261108";
+import { renderSelfTest } from "./selftest.js?v=20261108";
+import { renderProjects } from "./projects.js?v=20261108";
+import { openQaStats } from "./qa-admin.js?v=20261108";
 // מספר הגרסה – נלקח אוטומטית מכתובת הקובץ (?v=...) ומוצג בתחתית העמוד
 try { const v = new URL(import.meta.url).searchParams.get("v"); const el = document.getElementById("appVersion"); if (el && v) el.textContent = "גרסה " + v; } catch { /* */ }
 
@@ -1010,7 +1011,7 @@ function renderQuestions(full) {
   const cnt = (st) => [...S.questions.values()].filter((q) => !st || q.status === st).length;
   $("main").innerHTML = `
     <div class="row space"><h1>שו"ת – שאל את הרב</h1>
-      <div class="row"><button id="btnNewQ">+ שאלה ידנית</button><button id="btnExportQ">ייצוא ל-Excel</button>${can("admin", "head") ? '<button id="btnSitemap" title="קובץ שעוזר לגוגל למצוא את כל השאלות במאגר">מפת אתר לגוגל</button>' : ""}</div></div>
+      <div class="row"><button id="btnNewQ">+ שאלה ידנית</button><button id="btnExportQ">ייצוא ל-Excel</button><button id="btnQaStats" title="צפיות, חיפושים בלי תוצאות, דפים לגוגל">📊 נתוני המאגר</button></div></div>
     <div class="tabs" id="qTabs">
       ${[["new", "חדשות"], ["in_progress", "בטיפול"], ["answered", "נענו"], ["", "הכול"]].map(([k, l]) =>
         `<button data-st="${k}" class="${f.status === k ? "active" : ""}">${l} (<span data-cnt="${k}">${cnt(k)}</span>)</button>`).join("")}
@@ -1034,7 +1035,7 @@ function renderQuestions(full) {
   $("qRabbi").onchange = (e) => { S.qf.rabbi = e.target.value; renderQList(); };
   $("qTopic").onchange = (e) => { S.qf.topic = e.target.value; renderQList(); };
   $("btnExportQ").onclick = exportQuestions;
-  if ($("btnSitemap")) $("btnSitemap").onclick = downloadSitemap;
+  $("btnQaStats").onclick = () => openQaStats({ S, openModal, closeModal, toast, can, userName, audit });
   $("btnNewQ").onclick = openManualQuestion;
   renderQList();
 }
@@ -1053,19 +1054,6 @@ function renderQList() {
   const list = filteredQuestions();
   box.innerHTML = list.slice(0, 200).map(qCardHtml).join("") || '<p class="muted">אין שאלות להצגה</p>';
   bindQCards();
-}
-
-// sitemap.xml – רשימת כל דפי השאלות שבמאגר, בשביל גוגל. מעלים את הקובץ לתיקייה הראשית של האתר.
-function downloadSitemap() {
-  const base = new URL(".", location.href).href;
-  const urls = [base + "shut.html", base + "ask.html", ...[...S.questions.values()].filter((q) => q.publish).map((q) => base + "q.html?id=" + encodeURIComponent(q.id))];
-  const xml = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-    + urls.map((u) => `  <url><loc>${u.replace(/&/g, "&amp;")}</loc></url>`).join("\n") + "\n</urlset>\n";
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([xml], { type: "application/xml" }));
-  a.download = "sitemap.xml"; a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-  toast(`נוצר sitemap.xml עם ${urls.length} דפים. מעלים אותו לתיקייה הראשית של האתר.`, "good");
 }
 
 function exportQuestions() {
@@ -1116,6 +1104,7 @@ function openQuestion(id) {
   const name = [q.firstName, q.lastName].filter(Boolean).join(" ") || q.email || "שואל";
   openModal(`
     <div class="head"><h2>${q.imported ? `📚 ${esc(q.title || "שאלה מארכיון האתר")}` : `שאלה מאת ${esc(name)}`}</h2><button class="close" data-close>×</button></div>
+    ${q.refId ? `<div class="ref-box small">השואל כתב בהמשך לשאלה מהמאגר: <a href="q.html?id=${encodeURIComponent(q.refId)}" target="_blank" rel="noopener">${esc(q.refTitle || "לשאלה")}</a></div>` : ""}
     ${q.imported ? `<p class="small muted" style="margin-top:-6px">יובאה מאתר המכון הישן${q.rabbiName ? " · השיב: " + esc(q.rabbiName) : ""}${q.sourceUrl ? ` · <a href="${esc(q.sourceUrl)}" target="_blank" rel="noopener">הדף המקורי ↗</a>` : ""}</p>` : ""}
     <div class="split">
       <div>
@@ -1243,7 +1232,7 @@ async function saveQuestion(id) {
     await updateDoc(doc(db, "questions", id), upd);
     if (publish) {
       await setDoc(doc(db, "publicQA", id), { topic: upd.topic, tags: [...new Set([...tags, ...autoTags])], question: publicText || q.text, askerName: mode === "named" ? publicName : "", answer, answerHtml: upd.answerHtml,
-        rabbiName: rabbiEmail ? userName(rabbiEmail) : (q.rabbiName || ""), title: q.title || "", ...(q.imported ? { archive: true, summary: q.summary || "", sourceUrl: q.sourceUrl || "", oldId: q.oldId || null } : {}),
+        rabbiName: rabbiEmail ? userName(rabbiEmail) : (q.rabbiName || ""), title: q.title || "", staticPage: !!q.staticPage, ...(q.imported ? { archive: true, summary: q.summary || "", sourceUrl: q.sourceUrl || "", oldId: q.oldId || null } : {}),
         publishedAt: q.publish ? (q.publishedAt || serverTimestamp()) : serverTimestamp() });
       if (!q.publish) await updateDoc(doc(db, "questions", id), { publishedAt: serverTimestamp() });
     } else if (q.publish) {
@@ -1621,7 +1610,7 @@ function renderSettings(full) {
   if (!full && $("setCats") && (SET?.dirty || document.querySelector("#modalRoot .modal"))) return; // לא לדרוס עריכה פתוחה
   SET = JSON.parse(JSON.stringify(S.tax));
   // כל קטגוריה זוכרת את שמה המקורי – כדי לעדכן את השאלות כשמשנים שם או מוחקים
-  SET.rows = SET.categories.map((name) => ({ name, orig: name }));
+  SET.rows = SET.categories.map((name) => ({ name, orig: name, desc: (S.tax.catDesc || {})[name] || "" }));
   SET.moves = new Map(); // שם מקורי של קטגוריה שנמחקה ← השורה שאליה עוברות השאלות
   $("main").innerHTML = `
     <h1>הגדרות</h1>
@@ -1700,6 +1689,7 @@ function drawSettingsLists() {
     <div class="cond cat-row" data-i="${i}">
       <label class="check" title="ברירת מחדל בטופס" style="margin:0"><input type="radio" name="defCat" data-k="def" aria-label="ברירת מחדל" ${r.name && r.name === SET.defaultCategory ? "checked" : ""}></label>
       <input data-k="name" value="${esc(r.name)}" placeholder="שם הקטגוריה" style="flex:1" aria-label="שם הקטגוריה">
+      <input data-k="desc" value="${esc(r.desc || "")}" placeholder="תיאור קצר לדף הנושא באתר (רשות)" style="flex:2" aria-label="תיאור הקטגוריה" maxlength="300">
       <span class="small muted cat-n" title="שאלות בקטגוריה">${n ? qn(n) : ""}</span>
       <button data-k="up" title="למעלה" aria-label="להעלות" ${i === 0 ? "disabled" : ""}>▲</button>
       <button data-k="del" class="danger" title="מחיקה" aria-label="מחיקת הקטגוריה">✕</button>
@@ -1713,6 +1703,7 @@ function drawSettingsLists() {
       if (SET.defaultCategory === was) SET.defaultCategory = e.target.value;
     };
     row.querySelector('[data-k="name"]').onchange = () => drawSettingsLists();
+    row.querySelector('[data-k="desc"]').oninput = (e) => { r.desc = e.target.value; };
     row.querySelector('[data-k="def"]').onchange = () => { SET.defaultCategory = r.name; };
     row.querySelector('[data-k="up"]').onclick = () => { SET.rows.splice(i, 1); SET.rows.splice(i - 1, 0, r); drawSettingsLists(); };
     row.querySelector('[data-k="del"]').onclick = () => deleteCategory(r, origsOf(r), rowCount(r));
@@ -1761,7 +1752,8 @@ async function saveSettings() {
   if (!cats.length) return toast("צריך לפחות קטגוריה אחת", "bad");
   const names = SET.tags.map((t) => t.name.trim()).filter(Boolean);
   if (new Set(names).size !== names.length) return toast("יש שתי תגיות עם אותו שם", "bad");
-  const data = normTaxonomy({ categories: cats, defaultCategory: cats.includes(SET.defaultCategory?.trim()) ? SET.defaultCategory.trim() : cats[0], tags: SET.tags });
+  const catDesc = Object.fromEntries(SET.rows.filter((r) => r.name.trim() && (r.desc || "").trim()).map((r) => [r.name.trim(), r.desc.trim()]));
+  const data = normTaxonomy({ categories: cats, catDesc, defaultCategory: cats.includes(SET.defaultCategory?.trim()) ? SET.defaultCategory.trim() : cats[0], tags: SET.tags });
   // שם ישן ← שם חדש: קטגוריות ששמן שונה, וקטגוריות שנמחקו והשאלות שלהן עוברות
   const remap = new Map();
   SET.rows.forEach((r) => { if (r.orig && r.name.trim() && r.name.trim() !== r.orig) remap.set(r.orig, r.name.trim()); });

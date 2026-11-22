@@ -11,7 +11,7 @@
   <link rel="apple-touch-icon" href="img/icon-192.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#c19937">
-  <link rel="stylesheet" href="css/style.css?v=20261107">
+  <link rel="stylesheet" href="css/style.css?v=20261108">
 </head>
 <body>
   <a class="skip-link" href="#content">דילוג לתוכן</a>
@@ -30,6 +30,7 @@
           <div class="field"><label for="phone">טלפון</label><input id="phone" type="tel" maxlength="20" autocomplete="tel"></div>
         </div>
         <div class="field"><label for="topic">קטגוריה</label><select id="topic"></select></div>
+        <div id="refBox" class="ref-box hidden"></div>
         <div class="field"><label for="text">השאלה *</label><textarea id="text" required maxlength="5000" style="min-height:160px"></textarea></div>
         <div id="similar" class="similar hidden" aria-live="polite"></div>
         <label class="check" for="consent"><input type="checkbox" id="consent"> <span>אני מאשר/ת לקבל עדכונים מהמכון במייל (אפשר להסיר בכל עת)</span></label>
@@ -63,7 +64,7 @@
     </div>
   </dialog>
 
-  <script type="module" src="js/ask.js?v=20261107"></script>
+  <script type="module" src="js/ask.js?v=20261108"></script>
   <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
 </body>
 </html>

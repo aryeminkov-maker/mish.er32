@@ -1,7 +1,7 @@
 // ===== טופס שאלה ציבורי =====
-import { collection, doc, setDoc, getDocs, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { db, configReady, esc, toast, setupMissingNotice, loadTaxonomy } from "./common.js?v=20261107";
-import { tagsOf, titleOf } from "./qa-public.js?v=20261107";
+import { collection, doc, setDoc, getDoc, getDocs, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { db, configReady, esc, toast, setupMissingNotice, loadTaxonomy } from "./common.js?v=20261108";
+import { tagsOf, titleOf, qPageUrl } from "./qa-public.js?v=20261108";
 
 const $ = (id) => document.getElementById(id);
 
@@ -11,7 +11,9 @@ if (!configReady) {
 } else {
   loadTaxonomy().then((tx) => {
     $("topic").innerHTML = tx.categories.map((t) => `<option ${t === tx.defaultCategory ? "selected" : ""}>${esc(t)}</option>`).join("");
+    if (REF?.topic && tx.categories.includes(REF.topic)) $("topic").value = REF.topic;
   });
+  loadRef();
   const dlg = $("consentDialog");
   $("askForm").addEventListener("submit", (e) => {
     e.preventDefault();
@@ -22,6 +24,23 @@ if (!configReady) {
   $("cdYes").onclick = () => { $("consent").checked = true; dlg.close(); send(); };
   $("cdNo").onclick = () => { dlg.close(); send(); };
   $("cdBack").onclick = () => dlg.close();
+}
+
+// "יש לי שאלה דומה" – שאלה בהמשך לשאלה קיימת במאגר (ask.html?ref=...)
+let REF = null;
+async function loadRef() {
+  const ref = new URLSearchParams(location.search).get("ref");
+  if (!ref) return;
+  try {
+    const d = await getDoc(doc(db, "publicQA", ref));
+    if (!d.exists()) return;
+    REF = { id: d.id, title: titleOf({ id: d.id, ...d.data() }), topic: d.data().topic || "" };
+    $("refBox").innerHTML = `בהמשך לשאלה: <a href="${qPageUrl(REF.id)}" target="_blank" rel="noopener">${esc(REF.title)}</a>
+      <button type="button" class="link small" id="refClear" aria-label="ביטול הקישור לשאלה הקודמת">✕</button>`;
+    $("refBox").classList.remove("hidden");
+    $("refClear").onclick = () => { REF = null; $("refBox").classList.add("hidden"); };
+    $("text").placeholder = "מה שונה במקרה שלך? כתבו את הפרטים והשאלה";
+  } catch { /* */ }
 }
 
 // שליחה מהירה: בקשת HTTPS אחת ישירות ל-Firestore (בלי פתיחת ערוץ של הספרייה, שלוקחת כמה שניות).
@@ -57,6 +76,7 @@ async function send() {
     topic: $("topic").value,
     text: $("text").value.trim(),
     consentEmail: $("consent").checked,
+    ...(REF ? { refId: REF.id, refTitle: REF.title.slice(0, 200) } : {}),
     status: "new",
     contactId: null,
     origin: "טופס באתר"

@@ -2,7 +2,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { firebaseConfig, ORG_NAME, TOPICS } from "./config.js?v=20261107";
+import { firebaseConfig, ORG_NAME, TOPICS } from "./config.js?v=20261108";
 
 export { ORG_NAME, TOPICS };
 
@@ -83,6 +83,8 @@ export function normTaxonomy(t) {
   return {
     categories: cats,
     defaultCategory: cats.includes(t?.defaultCategory) ? t.defaultCategory : cats[0],
+    // תיאור קצר לכל קטגוריה (מוצג בדף הנושא באתר)
+    catDesc: Object.fromEntries(Object.entries(t?.catDesc || {}).filter(([k, v]) => cats.includes(k) && String(v || "").trim()).map(([k, v]) => [k, String(v).trim()])),
     tags: (t?.tags || []).map((g) => ({
       name: String(g.name || "").trim(),
       keywords: (g.keywords || []).map((k) => String(k).trim()).filter((k) => k.length >= 2)
@@ -136,11 +138,36 @@ export async function readWorkbook(file) {
 // ===== טקסט מעוצב (תשובות שו"ת): מודגש, קו תחתון, כותרת, כותרת משנה, רשימות =====
 // רק תגיות מותרות נשמרות, בלי שום מאפיין – כדי שאי אפשר יהיה להחדיר קוד
 const RICH_MAP = { B: "b", STRONG: "b", U: "u", H1: "h3", H2: "h3", H3: "h3", H4: "h4", H5: "h4", H6: "h4", P: "p", DIV: "p", UL: "ul", OL: "ol", LI: "li", BR: "br" };
+// קישורים בתשובות: לחיצים, נפתחים בלשונית חדשה. קישור לאתר אחר מקבל nofollow (גוגל לא מעביר אליו "קרדיט"),
+// קישור לאתר של המכון – קישור רגיל (מחזק את הדירוג של דפי המכון).
+const OWN_HOSTS = ["dintora.org", "www.dintora.org"];
+export function safeHref(href) {
+  let h = String(href || "").trim();
+  if (/^\/(?!\/)/.test(h)) h = "https://www.dintora.org" + h; // קישור פנימי מהאתר הישן
+  if (/^www\./i.test(h)) h = "https://" + h;
+  return /^(https?:|mailto:|tel:)/i.test(h) ? h : "";
+}
+export function linkTag(href, inner) {
+  const h = safeHref(href);
+  if (!h) return inner;
+  let own = false;
+  try { const u = new URL(h); own = OWN_HOSTS.includes(u.hostname) || u.hostname === location.hostname; } catch { /* */ }
+  return `<a href="${esc(h)}" target="_blank" rel="${own ? "noopener" : "nofollow noopener noreferrer"}">${inner}</a>`;
+}
+// טקסט רגיל ← HTML עם קישורים לחיצים (כתובות אינטרנט ומיילים בתוך הטקסט)
+export function linkify(text) {
+  return esc(text).replace(/(https?:\/\/[^\s<>"]+|www\.[^\s<>"]+)/gi, (m) => {
+    const trail = (m.match(/[).,;:!?'"\]]+$/) || [""])[0];
+    const url = m.slice(0, m.length - trail.length).replace(/&amp;/g, "&");
+    return linkTag(url, esc(url)) + trail;
+  });
+}
 export function sanitizeRich(html) {
   const body = new DOMParser().parseFromString(`<body>${html || ""}</body>`, "text/html").body;
   const walk = (node) => [...node.childNodes].map((n) => {
-    if (n.nodeType === 3) return esc(n.nodeValue);
+    if (n.nodeType === 3) return n.parentNode?.tagName === "A" ? esc(n.nodeValue) : linkify(n.nodeValue);
     if (n.nodeType !== 1) return "";
+    if (n.tagName === "A") return linkTag(n.getAttribute("href"), walk(n));
     const tag = RICH_MAP[n.tagName];
     if (/^(SCRIPT|STYLE|IFRAME|OBJECT|TEMPLATE)$/.test(n.tagName)) return "";
     if (tag === "br") return "<br>";

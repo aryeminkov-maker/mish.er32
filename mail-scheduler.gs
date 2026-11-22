@@ -470,8 +470,20 @@ function popularQA_() {
   const last = Number(props.getProperty("POPULAR_AT") || 0);
   if (Date.now() - last < 6 * 3600 * 1000) return;
   props.setProperty("POPULAR_AT", String(Date.now()));
-  const top = runQuery_({ from: [{ collectionId: "qaViews" }], orderBy: [{ field: { fieldPath: "count" }, direction: "DESCENDING" }], limit: 10 });
-  patch_("settings/popularQA", { ids: top.map(function (d) { return d.path.split("/").pop(); }), updatedAt: new Date() });
+  const top = runQuery_({ from: [{ collectionId: "qaViews" }], orderBy: [{ field: { fieldPath: "count" }, direction: "DESCENDING" }], limit: 400 });
+  const ids = top.map(function (d) { return d.path.split("/").pop(); });
+  // גם לכל קטגוריה ולכל תגית – 5 הנצפות ביותר (לדפי הנושא באתר)
+  const meta = {};
+  runQuery_({ from: [{ collectionId: "publicQA" }], select: { fields: [{ fieldPath: "topic" }, { fieldPath: "tags" }] } })
+    .forEach(function (d) { meta[d.path.split("/").pop()] = d.data; });
+  const byTopic = {}, byTag = {};
+  const push = function (m, k, id) { if (!k) return; m[k] = m[k] || []; if (m[k].length < 5) m[k].push(id); };
+  ids.forEach(function (id) {
+    const x = meta[id]; if (!x) return; // הוסרה מהמאגר
+    push(byTopic, x.topic, id);
+    (x.tags || []).forEach(function (t) { if (t !== "ארכיון") push(byTag, t, id); });
+  });
+  patch_("settings/popularQA", { ids: ids.filter(function (id) { return meta[id]; }).slice(0, 10), byTopic: byTopic, byTag: byTag, updatedAt: new Date() });
 }
 
 // ---------- Firestore (REST) ----------

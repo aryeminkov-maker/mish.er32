@@ -6,6 +6,10 @@
   <title>שו"ת – מכון משפטי ארץ</title>
   <meta name="description" content="שאלה ותשובה ממאגר השו&quot;ת של מכון משפטי ארץ">
   <link rel="canonical" id="canon" href="">
+  <meta property="og:title" content="מאגר השו&quot;ת של מכון משפטי ארץ">
+  <meta property="og:description" content="שאלות ותשובות בדיני ממונות ובמשפט התורה, מרבני מכון משפטי ארץ.">
+  <meta property="og:image" content="img/share.png">
+  <meta property="og:type" content="article">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="icon" type="image/png" href="img/favicon.png">
@@ -13,25 +17,33 @@
   <link rel="apple-touch-icon" href="img/icon-192.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#c19937">
-  <link rel="stylesheet" href="css/style.css?v=20261107">
+  <link rel="stylesheet" href="css/style.css?v=20261108">
 </head>
 <body>
   <a class="skip-link" href="#content">דילוג לתוכן</a>
-  <header class="public-head">
-    <a href="shut.html"><picture><source srcset="img/logo-light.png" media="(prefers-color-scheme: dark)"><img src="img/logo.png" class="logo-img" width="140" height="48" alt="מכון משפטי ארץ – למאגר השו&quot;ת"></picture></a>
+  <header class="public-head q-head">
+    <a href="shut.html" id="homeLink"><picture><source srcset="img/logo-light.png" media="(prefers-color-scheme: dark)"><img src="img/logo.png" class="logo-img" width="140" height="48" alt="מכון משפטי ארץ – למאגר השו&quot;ת" id="logoImg"></picture></a>
   </header>
   <main id="content" class="qpage">
     <div id="setupView"></div>
-    <nav class="crumbs small" aria-label="ניווט"><a href="shut.html">מאגר שו"ת</a> <span id="crumbCat"></span></nav>
+    <div class="q-toolbar no-print">
+      <nav class="crumbs small" aria-label="ניווט"><a href="shut.html" id="crumbHome">מאגר שו"ת</a> <span id="crumbCat"></span></nav>
+      <div class="reader-tools" role="group" aria-label="תצוגה">
+        <button type="button" id="fontDown" aria-label="הקטנת הטקסט">א-</button>
+        <button type="button" id="fontUp" aria-label="הגדלת הטקסט">א+</button>
+        <button type="button" id="readMode" aria-pressed="false">תצוגת קריאה</button>
+      </div>
+    </div>
     <article id="qa" class="card"><p class="muted">טוען...</p></article>
-    <div id="similar"></div>
-    <div class="card shut-cta"><b>יש לכם שאלה משלכם?</b> רבני המכון ישמחו לענות. <a href="ask.html">שאלו את הרב ←</a></div>
+    <div id="related" class="no-print"></div>
+    <div class="card shut-cta no-print"><b>יש לכם שאלה משלכם?</b> רבני המכון ישמחו לענות. <a href="ask.html" id="askLink">שאלו את הרב ←</a></div>
+    <p class="print-only small" id="printUrl"></p>
   </main>
-  <footer class="site-footer">
+  <footer class="site-footer no-print">
     <a href="ask.html">שאל את הרב</a> · <a href="shut.html">מאגר שו"ת</a> · <a href="shop.html">חנות הספרים</a> · <a href="my.html">האזור האישי</a> · <a href="accessibility.html">הצהרת נגישות</a> · <a href="privacy.html">מדיניות פרטיות</a>
     <div>© מכון משפטי ארץ</div>
   </footer>
-  <script type="module" src="js/q.js?v=20261107"></script>
+  <script type="module" src="js/q.js?v=20261108"></script>
   <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
 </body>
 </html>
