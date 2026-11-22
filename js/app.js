@@ -9,14 +9,14 @@ import {
 import {
   db, auth, configReady, esc, normEmail, normPhone, toDate, fmtDate, toast, setupMissingNotice,
   DEFAULT_TAXONOMY, normTaxonomy, autoTagsFor, readWorkbook, sanitizeRich, plainToRich, richToText, richToMarkup
-} from "./common.js?v=20261105";
-import { renderCourses, renderCalendar, courseSummary } from "./courses.js?v=20261105";
-import { renderResearch, researchSummary } from "./research.js?v=20261105";
-import { composeMail, queueMail, schedulerState } from "./mail.js?v=20261105";
-import { renderBooks } from "./books.js?v=20261105";
-import { renderReports } from "./reports.js?v=20261105";
-import { renderSelfTest } from "./selftest.js?v=20261105";
-import { renderProjects } from "./projects.js?v=20261105";
+} from "./common.js?v=20261106";
+import { renderCourses, renderCalendar, courseSummary } from "./courses.js?v=20261106";
+import { renderResearch, researchSummary } from "./research.js?v=20261106";
+import { composeMail, queueMail, schedulerState } from "./mail.js?v=20261106";
+import { renderBooks } from "./books.js?v=20261106";
+import { renderReports } from "./reports.js?v=20261106";
+import { renderSelfTest } from "./selftest.js?v=20261106";
+import { renderProjects } from "./projects.js?v=20261106";
 
 // ---------- קבועים ----------
 const ROLE_LABEL = {
@@ -972,12 +972,12 @@ async function mergeContacts(ids) {
 const pubMode = () => document.querySelector('[name="qPubMode"]:checked')?.value || "none";
 function qCardHtml(q) {
   return `<div class="qcard" data-q="${q.id}">
-    <div class="row space"><b>${esc([q.firstName, q.lastName].filter(Boolean).join(" ") || q.email || "שואל")}</b>
+    <div class="row space"><b>${q.imported ? `📚 ${esc(q.title || "ארכיון האתר")}` : esc([q.firstName, q.lastName].filter(Boolean).join(" ") || q.email || "שואל")}</b>
       <span>${q.consentEmail && q.status !== "answered" ? '<span class="badge prio" title="השואל אישר קבלת דיוור – הובטחה לו עדיפות במענה">עדיפות</span>' : ""}<span class="badge ${Q_BADGE[q.status]}">${Q_STATUS[q.status]}</span>${q.topic ? `<span class="badge">${esc(q.topic)}</span>` : ""}</span></div>
     <div class="qtext">${esc(q.text)}</div>
     ${qTags(q).length ? `<div>${tagBadges(q)}</div>` : ""}
-    <div class="row space small"><span>${contextBadges(q.contactId, q.id)}</span>
-      <span class="muted">${fmtDate(q.createdAt)}${q.rabbiEmail ? " · " + esc(userName(q.rabbiEmail)) : q.status !== "answered" && defaultRabbi(q.topic) ? ` · ${esc(userName(defaultRabbi(q.topic)))} <span class="small">(ברירת מחדל)</span>` : " · לא שויך"}</span></div>
+    <div class="row space small"><span>${q.imported ? "" : contextBadges(q.contactId, q.id)}</span>
+      <span class="muted">${q.imported ? `ארכיון האתר${q.rabbiName ? " · " + esc(q.rabbiName) : ""}` : fmtDate(q.createdAt)}${q.imported ? "" : q.rabbiEmail ? " · " + esc(userName(q.rabbiEmail)) : q.status !== "answered" && defaultRabbi(q.topic) ? ` · ${esc(userName(defaultRabbi(q.topic)))} <span class="small">(ברירת מחדל)</span>` : " · לא שויך"}</span></div>
   </div>`;
 }
 function bindQCards() { document.querySelectorAll(".qcard[data-q]").forEach((el) => (el.onclick = () => openQuestion(el.dataset.q))); }
@@ -1094,10 +1094,11 @@ function openQuestion(id) {
   const c = q.contactId ? S.contacts.get(q.contactId) : null;
   const name = [q.firstName, q.lastName].filter(Boolean).join(" ") || q.email || "שואל";
   openModal(`
-    <div class="head"><h2>שאלה מאת ${esc(name)}</h2><button class="close" data-close>×</button></div>
+    <div class="head"><h2>${q.imported ? `📚 ${esc(q.title || "שאלה מארכיון האתר")}` : `שאלה מאת ${esc(name)}`}</h2><button class="close" data-close>×</button></div>
+    ${q.imported ? `<p class="small muted" style="margin-top:-6px">יובאה מאתר המכון הישן${q.rabbiName ? " · השיב: " + esc(q.rabbiName) : ""}${q.sourceUrl ? ` · <a href="${esc(q.sourceUrl)}" target="_blank" rel="noopener">הדף המקורי ↗</a>` : ""}</p>` : ""}
     <div class="split">
       <div>
-        <p class="small muted">${fmtDate(q.createdAt)} · ${esc(q.topic || "ללא קטגוריה")} · ${esc(q.origin || "")}</p>
+        <p class="small muted">${q.imported ? "" : fmtDate(q.createdAt) + " · "}${esc(q.topic || "ללא קטגוריה")} · ${esc(q.origin || "")}</p>
         <div class="card pre" style="background:var(--surface-2)">${esc(q.text)}</div>
         <div class="field"><label id="qAnsLbl">תשובה</label>${richEditorHtml("qAnswer", q.answerHtml ? sanitizeRich(q.answerHtml) : plainToRich(q.answer), "qAnsLbl")}</div>
         <div class="grid2">
@@ -1131,7 +1132,10 @@ function openQuestion(id) {
           ${q.answerSentAt ? `<span class="badge good">התשובה נשלחה ${fmtDate(q.answerSentAt)}</span>` : q.email ? "" : '<span class="small muted">אין לשואל כתובת מייל</span>'}
         </div>
       </div>
-      <div>
+      ${q.imported ? `<div><h3>מארכיון האתר</h3>
+        ${q.summary ? `<p class="small">${esc(q.summary)}</p>` : ""}
+        <p class="small muted">השאלה יובאה מהאתר הישן (דף ${esc(String(q.oldId || ""))}), בלי פרטי שואל.</p>
+        ${q.sourceUrl ? `<a href="${esc(q.sourceUrl)}" target="_blank" rel="noopener">לדף המקורי ↗</a>` : ""}` : `<div>
         <h3>על השואל</h3>
         <div class="context">${contextBadges(q.contactId, q.id)}</div>
         <p>${esc(q.email)}${q.phone ? "<br>" + esc(q.phone) : ""}</p>
@@ -1140,7 +1144,7 @@ function openQuestion(id) {
         <h3 style="margin-top:16px">שאלות קודמות</h3>
         <ul class="timeline">${(q.contactId ? sortByDateDesc((S.qByContact.get(q.contactId) || []).filter((x) => x.id !== id), "createdAt") : [])
           .map((x) => `<li><div class="when">${fmtDate(x.createdAt)} · <span class="badge ${Q_BADGE[x.status]}">${Q_STATUS[x.status]}</span></div>
-            <button class="link" data-prevq="${x.id}">${esc((x.text || "").slice(0, 90))}</button></li>`).join("") || '<li class="muted">אין</li>'}</ul>
+            <button class="link" data-prevq="${x.id}">${esc((x.text || "").slice(0, 90))}</button></li>`).join("") || '<li class="muted">אין</li>'}</ul>`}
       </div>
     </div>`, (root) => {
     bindRichEditor("qAnswer");
@@ -1217,7 +1221,9 @@ async function saveQuestion(id) {
   try {
     await updateDoc(doc(db, "questions", id), upd);
     if (publish) {
-      await setDoc(doc(db, "publicQA", id), { topic: upd.topic, tags: [...new Set([...tags, ...autoTags])], question: publicText || q.text, askerName: mode === "named" ? publicName : "", answer, answerHtml: upd.answerHtml, rabbiName: userName(rabbiEmail), publishedAt: q.publish ? (q.publishedAt || serverTimestamp()) : serverTimestamp() });
+      await setDoc(doc(db, "publicQA", id), { topic: upd.topic, tags: [...new Set([...tags, ...autoTags])], question: publicText || q.text, askerName: mode === "named" ? publicName : "", answer, answerHtml: upd.answerHtml,
+        rabbiName: rabbiEmail ? userName(rabbiEmail) : (q.rabbiName || ""), title: q.title || "", ...(q.imported ? { archive: true, summary: q.summary || "", sourceUrl: q.sourceUrl || "", oldId: q.oldId || null } : {}),
+        publishedAt: q.publish ? (q.publishedAt || serverTimestamp()) : serverTimestamp() });
       if (!q.publish) await updateDoc(doc(db, "questions", id), { publishedAt: serverTimestamp() });
     } else if (q.publish) {
       await deleteDoc(doc(db, "publicQA", id));

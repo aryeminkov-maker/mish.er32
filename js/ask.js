@@ -1,6 +1,6 @@
 // ===== טופס שאלה ציבורי =====
 import { collection, doc, setDoc, getDocs, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { db, configReady, esc, toast, setupMissingNotice, loadTaxonomy } from "./common.js?v=20261105";
+import { db, configReady, esc, toast, setupMissingNotice, loadTaxonomy } from "./common.js?v=20261106";
 
 const $ = (id) => document.getElementById(id);
 

@@ -1,6 +1,6 @@
 // ===== מאגר שו"ת ציבורי =====
 import { collection, getDocs, query, orderBy } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { db, configReady, esc, fmtDate, setupMissingNotice, loadTaxonomy, sanitizeRich } from "./common.js?v=20261105";
+import { db, configReady, esc, fmtDate, setupMissingNotice, loadTaxonomy, sanitizeRich } from "./common.js?v=20261106";
 
 const $ = (id) => document.getElementById(id);
 let ALL = [];
@@ -36,13 +36,13 @@ const WA_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="tr
 function render() {
   const t = $("search").value.trim().toLowerCase();
   const topic = $("topic").value;
-  const list = ALL.filter((x) => (!topic || x.topic === topic) && (!t || `${x.question} ${x.answer} ${(x.tags || []).join(" ")}`.toLowerCase().includes(t)));
+  const list = ALL.filter((x) => (!topic || x.topic === topic) && (!t || `${x.title || ""} ${x.question} ${x.answer} ${(x.tags || []).join(" ")}`.toLowerCase().includes(t)));
   $("count").textContent = `${list.length} שאלות`;
   $("list").innerHTML = list.map((x) => `
     <details class="qa" id="q-${x.id}">
-      <summary>${esc(x.question.length > 140 ? x.question.slice(0, 140) + "…" : x.question)}</summary>
-      <div class="small muted" style="margin-top:6px">${esc(x.topic || "")}${x.publishedAt ? " · " + fmtDate(x.publishedAt) : ""} ${(x.tags || []).map((g) => `<span class="badge">${esc(g)}</span>`).join("")}</div>
-      ${x.question.length > 140 ? `<p class="pre">${esc(x.question)}</p>` : ""}
+      <summary>${x.title ? `<b>${esc(x.title)}</b>` : esc(x.question.length > 140 ? x.question.slice(0, 140) + "…" : x.question)}</summary>
+      <div class="small muted" style="margin-top:6px">${esc(x.topic || "")}${x.publishedAt && !x.archive ? " · " + fmtDate(x.publishedAt) : ""} ${(x.tags || []).filter((g) => g !== "ארכיון").map((g) => `<span class="badge">${esc(g)}</span>`).join("")}</div>
+      ${x.title || x.question.length > 140 ? `<h3 class="qa-h">השאלה</h3><p class="pre">${esc(x.question)}</p><h3 class="qa-h">התשובה</h3>` : ""}
       ${x.askerName ? `<p class="small muted" style="margin:4px 0 0">שאל/ה: ${esc(x.askerName)}</p>` : ""}
       <div class="ans ${x.answerHtml ? "rich" : ""}">${x.answerHtml ? sanitizeRich(x.answerHtml) : esc(x.answer)}${x.rabbiName ? `<p class="small muted">— ${esc(x.rabbiName)}</p>` : ""}</div>
       <div class="row" style="margin-top:8px"><a class="share-wa" href="${waLink(x)}" target="_blank" rel="noopener">${WA_ICON} שיתוף בוואטסאפ</a>
