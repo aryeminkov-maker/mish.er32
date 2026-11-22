@@ -1,6 +1,7 @@
 // ===== טופס שאלה ציבורי =====
 import { collection, doc, setDoc, getDocs, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { db, configReady, esc, toast, setupMissingNotice, loadTaxonomy } from "./common.js?v=20261106";
+import { db, configReady, esc, toast, setupMissingNotice, loadTaxonomy } from "./common.js?v=20261107";
+import { tagsOf, titleOf } from "./qa-public.js?v=20261107";
 
 const $ = (id) => document.getElementById(id);
 
@@ -91,13 +92,15 @@ async function showSimilar() {
   const qw = words(q);
   if (qw.length < 2) { box.classList.add("hidden"); return; }
   if (!archive) {
-    try { archive = (await getDocs(collection(db, "publicQA"))).docs.map((d) => ({ id: d.id, ...d.data(), w: words(`${d.data().question} ${(d.data().tags || []).join(" ")}`) })); }
+    try { archive = (await getDocs(collection(db, "publicQA"))).docs.map((d) => ({ id: d.id, ...d.data(), w: words(`${d.data().title || ""} ${d.data().question} ${(d.data().tags || []).join(" ")}`) })); }
     catch { archive = []; }
   }
   const scored = archive.map((x) => ({ x, s: qw.filter((w) => x.w.some((v) => v === w || (w.length >= 4 && (v.startsWith(w) || w.startsWith(v))))).length / Math.sqrt(qw.length) }))
-    .filter((r) => r.s >= 0.75).sort((a, b) => b.s - a.s).slice(0, 3);
+    .filter((r) => r.s >= 0.75).sort((a, b) => b.s - a.s).slice(0, 4);
   if (!scored.length) { box.classList.add("hidden"); return; }
-  box.innerHTML = `<b>אולי התשובה כבר נמצאת במאגר:</b><ul>${scored.map(({ x }) => `<li><a href="shut.html?id=${encodeURIComponent(x.id)}#q-${encodeURIComponent(x.id)}" target="_blank" rel="noopener">${esc(x.question.length > 120 ? x.question.slice(0, 120) + "…" : x.question)}</a></li>`).join("")}</ul>
+  box.innerHTML = `<b>אולי התשובה כבר נמצאת במאגר:</b><ul class="sim-list">${scored.map(({ x }) => `<li><a href="q.html?id=${encodeURIComponent(x.id)}" target="_blank" rel="noopener"><b>${esc(titleOf(x))}</b></a>
+      <div class="sim-meta">${x.topic ? `<span class="badge">${esc(x.topic)}</span>` : ""}${tagsOf(x).slice(0, 4).map((g) => `<span class="chip small">${esc(g)}</span>`).join("")}</div>
+      ${x.title ? `<div class="small muted sim-ex">${esc((x.summary || x.question || "").slice(0, 140))}${(x.summary || x.question || "").length > 140 ? "…" : ""}</div>` : ""}</li>`).join("")}</ul>
     <span class="small muted">לא מצאת? המשיכו ושלחו את השאלה.</span>`;
   box.classList.remove("hidden");
 }

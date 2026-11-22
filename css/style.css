@@ -439,3 +439,37 @@ details.qa .ans.rich { white-space: normal; }
 @media (max-width: 760px) { .grid3 { grid-template-columns: 1fr; } }
 .qa-h { font-size: 1rem; margin: 12px 0 4px; color: var(--ink-2); }
 .tag-btn { cursor: pointer; border: 0; font: inherit; font-size: .8rem; } .tag-btn:hover { text-decoration: underline; }
+/* מאגר השו"ת */
+.shut-list { max-width: 760px; margin: 0 auto; }
+.tag-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 10px; }
+.tag-row:empty { display: none; }
+.chip { border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px; padding: 3px 10px; font: inherit; font-size: .85rem; cursor: pointer; }
+.chip:hover, .chip:focus-visible { border-color: var(--gold); background: var(--brand-soft); }
+.chip.on { background: var(--brand-soft); border-color: var(--gold); font-weight: 600; }
+.chip.small { font-size: .78rem; padding: 1px 8px; }
+details.qa summary { list-style: none; display: grid; gap: 6px; }
+details.qa summary::-webkit-details-marker { display: none; }
+details.qa summary .qa-title { font-weight: 700; font-size: 1.05rem; }
+details.qa summary .qa-title::before { content: "◂ "; color: var(--gold); }
+details.qa[open] summary .qa-title::before { content: "▾ "; }
+details.qa .qa-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-weight: 400; }
+details.qa .qa-excerpt { font-weight: 400; color: var(--ink-2); font-size: .92rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+details.qa[open] .qa-excerpt { display: none; }
+.qa-similar { margin-top: 14px; padding: 10px 14px; background: var(--brand-soft); border-radius: 8px; }
+.qa-similar ul { margin: 4px 0 0; padding-right: 18px; line-height: 1.8; }
+.shut-cta { margin-top: 16px; text-align: center; }
+.center { text-align: center; margin: 10px 0; }
+.qpage { max-width: 780px; margin: 0 auto; }
+.crumbs { margin: 4px 0 10px; }
+.q-title { font-size: 1.5rem; margin: 0 0 8px; }
+.qpage .qa-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.q-summary { background: var(--surface-2); border-radius: 8px; padding: 10px 12px; margin: 12px 0 4px; }
+a.chip { text-decoration: none; display: inline-block; }
+.popular-box { margin-bottom: 12px; }
+.popular-box ol { margin: 6px 0 0; padding-right: 22px; line-height: 1.9; }
+.views { font-size: .8rem; color: var(--ink-2); white-space: nowrap; }
+.sim-list { list-style: none; padding: 0; margin: 6px 0; }
+.sim-list li { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.sim-list li:last-child { border-bottom: 0; }
+.sim-meta { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.sim-ex { margin-top: 3px; }

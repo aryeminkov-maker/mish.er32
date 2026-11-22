@@ -3,8 +3,8 @@
 // מנהל מערכת, רכז הרכזים ורכז מחקר רואים את כולם במסך אחד לכל חודש.
 // מסמך: monthly/{מייל}_{YYYY-MM}  { researcherEmail, researcherName, month, achieved, nextGoal, coordComment }
 import { doc, setDoc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { db } from "./common.js?v=20261106";
-import { todayIso, HEB_MONTHS } from "./util.js?v=20261106";
+import { db } from "./common.js?v=20261107";
+import { todayIso, HEB_MONTHS } from "./util.js?v=20261107";
 
 // ---------- חודשים ----------
 const thisMonth = () => todayIso().slice(0, 7);

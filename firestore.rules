@@ -87,6 +87,17 @@ service cloud.firestore {
       allow write: if isStaff();
     }
 
+    // צפיות בשאלות במאגר: כל גולש יכול רק להוסיף 1 (לשאלה שקיימת במאגר). רק הצוות רואה את המספרים.
+    match /qaViews/{id} {
+      allow read: if isStaff();
+      allow create: if exists(/databases/$(database)/documents/publicQA/$(id))
+        && request.resource.data.keys().hasOnly(['count', 'last'])
+        && request.resource.data.count == 1 && request.resource.data.last == request.time;
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['count', 'last'])
+        && request.resource.data.count == resource.data.count + 1 && request.resource.data.last == request.time;
+      allow delete: if isAdmin();
+    }
+
     // ---------- הגדרות (קטגוריות, תגיות, חשבונות זום) ----------
     match /settings/{id} {
       allow read: if true;

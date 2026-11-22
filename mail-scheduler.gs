@@ -86,6 +86,7 @@ function processQueue() {
   step("תזכורות", function () { courseReminders_(site); });
   step("משוב", function () { feedbackRequests_(site); });
   step("שו\"ת", function () { qaNotifications_(site); });
+  step("נצפות", function () { popularQA_(); });
   step("שליחה", function () {
     const jobs = runQuery_({
       from: [{ collectionId: "mailQueue" }],
@@ -461,6 +462,16 @@ function toHtml_(text, unsub) {
 function sendGmail_(to, toName, subject, text, unsub) {
   const plain = stripMarkup_(text) + (unsub ? "\n\n--\nלהסרה מרשימת התפוצה: " + unsub : "");
   GmailApp.sendEmail(to, subject, plain, { htmlBody: toHtml_(text, unsub), name: ORG_NAME });
+}
+
+// ---------- השאלות הנצפות ביותר במאגר – מחושב פעם ב-6 שעות ונשמר ב-settings/popularQA (רק רשימת מזהים, בלי מספרים) ----------
+function popularQA_() {
+  const props = PropertiesService.getScriptProperties();
+  const last = Number(props.getProperty("POPULAR_AT") || 0);
+  if (Date.now() - last < 6 * 3600 * 1000) return;
+  props.setProperty("POPULAR_AT", String(Date.now()));
+  const top = runQuery_({ from: [{ collectionId: "qaViews" }], orderBy: [{ field: { fieldPath: "count" }, direction: "DESCENDING" }], limit: 10 });
+  patch_("settings/popularQA", { ids: top.map(function (d) { return d.path.split("/").pop(); }), updatedAt: new Date() });
 }
 
 // ---------- Firestore (REST) ----------

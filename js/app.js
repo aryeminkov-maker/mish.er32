@@ -9,14 +9,14 @@ import {
 import {
   db, auth, configReady, esc, normEmail, normPhone, toDate, fmtDate, toast, setupMissingNotice,
   DEFAULT_TAXONOMY, normTaxonomy, autoTagsFor, readWorkbook, sanitizeRich, plainToRich, richToText, richToMarkup
-} from "./common.js?v=20261106";
-import { renderCourses, renderCalendar, courseSummary } from "./courses.js?v=20261106";
-import { renderResearch, researchSummary } from "./research.js?v=20261106";
-import { composeMail, queueMail, schedulerState } from "./mail.js?v=20261106";
-import { renderBooks } from "./books.js?v=20261106";
-import { renderReports } from "./reports.js?v=20261106";
-import { renderSelfTest } from "./selftest.js?v=20261106";
-import { renderProjects } from "./projects.js?v=20261106";
+} from "./common.js?v=20261107";
+import { renderCourses, renderCalendar, courseSummary } from "./courses.js?v=20261107";
+import { renderResearch, researchSummary } from "./research.js?v=20261107";
+import { composeMail, queueMail, schedulerState } from "./mail.js?v=20261107";
+import { renderBooks } from "./books.js?v=20261107";
+import { renderReports } from "./reports.js?v=20261107";
+import { renderSelfTest } from "./selftest.js?v=20261107";
+import { renderProjects } from "./projects.js?v=20261107";
 // מספר הגרסה – נלקח אוטומטית מכתובת הקובץ (?v=...) ומוצג בתחתית העמוד
 try { const v = new URL(import.meta.url).searchParams.get("v"); const el = document.getElementById("appVersion"); if (el && v) el.textContent = "גרסה " + v; } catch { /* */ }
 
@@ -47,7 +47,7 @@ const CONSENT_BADGE = { yes: "good", no: "bad", removed: "bad", unknown: "" };
 // ---------- מצב ----------
 const S = {
   user: null, profile: null, view: "dashboard",
-  contacts: new Map(), activities: new Map(), questions: new Map(), users: new Map(), lists: new Map(),
+  contacts: new Map(), activities: new Map(), questions: new Map(), qaViews: new Map(), users: new Map(), lists: new Map(),
   byEmail: new Map(), byPhone: new Map(), actByContact: new Map(), qByContact: new Map(),
   loaded: { contacts: false, activities: false, questions: false },
   linking: new Set(),
@@ -202,6 +202,8 @@ function subscribeAll() {
       });
       S.loaded.activities = true; dataChanged();
     });
+    // צפיות בשאלות במאגר הציבורי (מוצג רק כאן, בממשק הניהול)
+    subQ("qaViews", collection(db, "qaViews"), (snap) => { S.qaViews.clear(); snap.forEach((d) => S.qaViews.set(d.id, d.data().count || 0)); });
     sub("questions", (snap) => {
       S.questions.clear(); S.qByContact.clear();
       snap.forEach((d) => {
@@ -979,14 +981,15 @@ function qCardHtml(q) {
     <div class="qtext">${esc(q.text)}</div>
     ${qTags(q).length ? `<div>${tagBadges(q)}</div>` : ""}
     <div class="row space small"><span>${q.imported ? "" : contextBadges(q.contactId, q.id)}</span>
-      <span class="muted">${q.imported ? `ארכיון האתר${q.rabbiName ? " · " + esc(q.rabbiName) : ""}` : fmtDate(q.createdAt)}${q.imported ? "" : q.rabbiEmail ? " · " + esc(userName(q.rabbiEmail)) : q.status !== "answered" && defaultRabbi(q.topic) ? ` · ${esc(userName(defaultRabbi(q.topic)))} <span class="small">(ברירת מחדל)</span>` : " · לא שויך"}</span></div>
+      <span class="muted">${q.publish && S.qaViews.get(q.id) ? `<span class="views" title="צפיות במאגר הציבורי (מוצג רק בממשק הניהול)">👁 ${S.qaViews.get(q.id)}</span> · ` : ""}${q.imported ? `ארכיון האתר${q.rabbiName ? " · " + esc(q.rabbiName) : ""}` : fmtDate(q.createdAt)}${q.imported ? "" : q.rabbiEmail ? " · " + esc(userName(q.rabbiEmail)) : q.status !== "answered" && defaultRabbi(q.topic) ? ` · ${esc(userName(defaultRabbi(q.topic)))} <span class="small">(ברירת מחדל)</span>` : " · לא שויך"}</span></div>
   </div>`;
 }
 function bindQCards() { document.querySelectorAll(".qcard[data-q]").forEach((el) => (el.onclick = () => openQuestion(el.dataset.q))); }
 
 function filteredQuestions() {
   const f = S.qf;
-  return sortByDateDesc([...S.questions.values()].filter((q) => {
+  const sorted = (list) => f.sort === "views" ? list.sort((a, b) => (S.qaViews.get(b.id) || 0) - (S.qaViews.get(a.id) || 0)) : sortByDateDesc(list, "createdAt");
+  return sorted([...S.questions.values()].filter((q) => {
     if (f.status && q.status !== f.status) return false;
     if (f.rabbi === "mine" && q.rabbiEmail !== myEmail()) return false;
     if (f.rabbi === "none" && q.rabbiEmail) return false;
@@ -998,7 +1001,7 @@ function filteredQuestions() {
       if (![q.text, q.answer, q.firstName, q.lastName, q.email, qTags(q).join(" ")].join(" ").toLowerCase().includes(t)) return false;
     }
     return true;
-  }), "createdAt");
+  }));
 }
 
 function renderQuestions(full) {
@@ -1007,7 +1010,7 @@ function renderQuestions(full) {
   const cnt = (st) => [...S.questions.values()].filter((q) => !st || q.status === st).length;
   $("main").innerHTML = `
     <div class="row space"><h1>שו"ת – שאל את הרב</h1>
-      <div class="row"><button id="btnNewQ">+ שאלה ידנית</button><button id="btnExportQ">ייצוא ל-Excel</button></div></div>
+      <div class="row"><button id="btnNewQ">+ שאלה ידנית</button><button id="btnExportQ">ייצוא ל-Excel</button>${can("admin", "head") ? '<button id="btnSitemap" title="קובץ שעוזר לגוגל למצוא את כל השאלות במאגר">מפת אתר לגוגל</button>' : ""}</div></div>
     <div class="tabs" id="qTabs">
       ${[["new", "חדשות"], ["in_progress", "בטיפול"], ["answered", "נענו"], ["", "הכול"]].map(([k, l]) =>
         `<button data-st="${k}" class="${f.status === k ? "active" : ""}">${l} (<span data-cnt="${k}">${cnt(k)}</span>)</button>`).join("")}
@@ -1020,15 +1023,18 @@ function renderQuestions(full) {
       </select>
       <select id="qTopic" style="width:auto" aria-label="סינון לפי קטגוריה"><option value="">כל הקטגוריות</option>${S.tax.categories.map((t) => `<option>${esc(t)}</option>`).join("")}</select>
       <select id="qTag" style="width:auto" aria-label="סינון לפי תגית"><option value="">כל התגיות</option>${allTagNames().map((t) => `<option>${esc(t)}</option>`).join("")}</select>
+      <select id="qSort" style="width:auto" aria-label="מיון"><option value="">החדשות קודם</option><option value="views">הכי נצפות במאגר</option></select>
     </div></div>
     <div class="qlist" id="qList"></div>`;
-  $("qRabbi").value = f.rabbi; $("qTopic").value = f.topic; $("qTag").value = f.tag;
+  $("qRabbi").value = f.rabbi; $("qTopic").value = f.topic; $("qTag").value = f.tag; $("qSort").value = f.sort || "";
+  $("qSort").onchange = (e) => { S.qf.sort = e.target.value; renderQList(); };
   $("qTag").onchange = (e) => { S.qf.tag = e.target.value; renderQList(); };
   $("qTabs").querySelectorAll("button").forEach((b) => (b.onclick = () => { S.qf.status = b.dataset.st; renderQuestions(true); }));
   $("qText").oninput = (e) => { S.qf.text = e.target.value; renderQList(); };
   $("qRabbi").onchange = (e) => { S.qf.rabbi = e.target.value; renderQList(); };
   $("qTopic").onchange = (e) => { S.qf.topic = e.target.value; renderQList(); };
   $("btnExportQ").onclick = exportQuestions;
+  if ($("btnSitemap")) $("btnSitemap").onclick = downloadSitemap;
   $("btnNewQ").onclick = openManualQuestion;
   renderQList();
 }
@@ -1047,6 +1053,19 @@ function renderQList() {
   const list = filteredQuestions();
   box.innerHTML = list.slice(0, 200).map(qCardHtml).join("") || '<p class="muted">אין שאלות להצגה</p>';
   bindQCards();
+}
+
+// sitemap.xml – רשימת כל דפי השאלות שבמאגר, בשביל גוגל. מעלים את הקובץ לתיקייה הראשית של האתר.
+function downloadSitemap() {
+  const base = new URL(".", location.href).href;
+  const urls = [base + "shut.html", base + "ask.html", ...[...S.questions.values()].filter((q) => q.publish).map((q) => base + "q.html?id=" + encodeURIComponent(q.id))];
+  const xml = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+    + urls.map((u) => `  <url><loc>${u.replace(/&/g, "&amp;")}</loc></url>`).join("\n") + "\n</urlset>\n";
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([xml], { type: "application/xml" }));
+  a.download = "sitemap.xml"; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  toast(`נוצר sitemap.xml עם ${urls.length} דפים. מעלים אותו לתיקייה הראשית של האתר.`, "good");
 }
 
 function exportQuestions() {
@@ -1100,7 +1119,7 @@ function openQuestion(id) {
     ${q.imported ? `<p class="small muted" style="margin-top:-6px">יובאה מאתר המכון הישן${q.rabbiName ? " · השיב: " + esc(q.rabbiName) : ""}${q.sourceUrl ? ` · <a href="${esc(q.sourceUrl)}" target="_blank" rel="noopener">הדף המקורי ↗</a>` : ""}</p>` : ""}
     <div class="split">
       <div>
-        <p class="small muted">${q.imported ? "" : fmtDate(q.createdAt) + " · "}${esc(q.topic || "ללא קטגוריה")} · ${esc(q.origin || "")}</p>
+        <p class="small muted">${q.imported ? "" : fmtDate(q.createdAt) + " · "}${esc(q.topic || "ללא קטגוריה")} · ${esc(q.origin || "")}${q.publish ? ` · 👁 ${S.qaViews.get(q.id) || 0} צפיות במאגר · <a href="q.html?id=${encodeURIComponent(id)}" target="_blank" rel="noopener">לדף השאלה באתר ↗</a>` : ""}</p>
         <div class="card pre" style="background:var(--surface-2)">${esc(q.text)}</div>
         <div class="field"><label id="qAnsLbl">תשובה</label>${richEditorHtml("qAnswer", q.answerHtml ? sanitizeRich(q.answerHtml) : plainToRich(q.answer), "qAnsLbl")}</div>
         <div class="grid2">
