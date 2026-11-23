@@ -9,15 +9,15 @@ import {
 import {
   db, auth, configReady, esc, normEmail, normPhone, toDate, fmtDate, toast, setupMissingNotice,
   DEFAULT_TAXONOMY, normTaxonomy, autoTagsFor, readWorkbook, sanitizeRich, plainToRich, richToText, richToMarkup
-} from "./common.js?v=20261108";
-import { renderCourses, renderCalendar, courseSummary } from "./courses.js?v=20261108";
-import { renderResearch, researchSummary } from "./research.js?v=20261108";
-import { composeMail, queueMail, schedulerState } from "./mail.js?v=20261108";
-import { renderBooks } from "./books.js?v=20261108";
-import { renderReports } from "./reports.js?v=20261108";
-import { renderSelfTest } from "./selftest.js?v=20261108";
-import { renderProjects } from "./projects.js?v=20261108";
-import { openQaStats } from "./qa-admin.js?v=20261108";
+} from "./common.js?v=20261109";
+import { renderCourses, renderCalendar, courseSummary } from "./courses.js?v=20261109";
+import { renderResearch, researchSummary } from "./research.js?v=20261109";
+import { composeMail, queueMail, schedulerState } from "./mail.js?v=20261109";
+import { renderBooks } from "./books.js?v=20261109";
+import { renderReports } from "./reports.js?v=20261109";
+import { renderSelfTest } from "./selftest.js?v=20261109";
+import { renderProjects } from "./projects.js?v=20261109";
+import { openQaStats } from "./qa-admin.js?v=20261109";
 // מספר הגרסה – נלקח אוטומטית מכתובת הקובץ (?v=...) ומוצג בתחתית העמוד
 try { const v = new URL(import.meta.url).searchParams.get("v"); const el = document.getElementById("appVersion"); if (el && v) el.textContent = "גרסה " + v; } catch { /* */ }
 

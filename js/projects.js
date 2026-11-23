@@ -3,8 +3,8 @@
 // { title, desc, owner, dueDate, priority, stage, health, tasks:[{id,text,who,due,done}], milestones:[{id,text,done}],
 //   links:[{title,url}], tags:[], sharedWith:[emails], log:[{at,by,text,health,next}], updatedAt, updatedBy }
 import { collection, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, serverTimestamp, Timestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { db } from "./common.js?v=20261108";
-import { todayIso, fmtIso, uid, norm } from "./util.js?v=20261108";
+import { db } from "./common.js?v=20261109";
+import { todayIso, fmtIso, uid, norm } from "./util.js?v=20261109";
 
 export const STAGES = { idea: "רעיון", planning: "בתכנון", doing: "בביצוע", waiting: "ממתין", done: "הושלם" };
 export const HEALTH = { ok: "🟢 במסלול", risk: "🟡 בסיכון", stuck: "🔴 תקוע", paused: "⚪ מושהה" };

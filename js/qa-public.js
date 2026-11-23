@@ -1,6 +1,6 @@
 // ===== כלים משותפים לדפי השו"ת הציבוריים (מאגר, דף שאלה, דפי נושא, טופס שאל את הרב) =====
 import { doc, setDoc, addDoc, collection, increment, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { db, normText, esc } from "./common.js?v=20261108";
+import { db, normText, esc } from "./common.js?v=20261109";
 
 // שורש האתר – כך הקישורים עובדים גם מדפים שבתיקיות משנה (q/123.html)
 export const ROOT = new URL("../", import.meta.url).href;

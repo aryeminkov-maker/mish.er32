@@ -17,19 +17,20 @@
   <link rel="apple-touch-icon" href="img/icon-192.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#c19937">
-  <link rel="stylesheet" href="css/style.css?v=20261108">
+  <link rel="stylesheet" href="css/style.css?v=20261109">
 </head>
 <body>
   <a class="skip-link" href="#content">דילוג לתוכן</a>
-  <header class="public-head">
+  <header class="public-head m-compact topic-head">
     <a href="shut.html"><picture><source srcset="img/logo-light.png" media="(prefers-color-scheme: dark)"><img src="img/logo.png" class="logo-img" width="140" height="48" alt="מכון משפטי ארץ – למאגר השו&quot;ת"></picture></a>
-    <p class="small"><a href="shut.html">מאגר שו"ת</a> › <span id="crumb"></span></p>
+    <p class="small crumbs-line"><a href="shut.html">מאגר שו"ת</a> › <span id="crumb"></span></p>
     <h1 id="tTitle">טוען...</h1>
+    <p class="head-cta m-only"><a href="shut.html">כל המאגר</a></p>
     <p id="tDesc" class="topic-desc"></p>
   </header>
-  <main id="content" class="shut-list">
+  <main id="content" class="shut-list topic-main">
     <div id="setupView"></div>
-    <div class="card"><input id="tSearch" type="search" placeholder="חיפוש בנושא הזה" aria-label="חיפוש בנושא הזה"></div>
+    <div class="card shut-filters"><input id="tSearch" type="search" placeholder="חיפוש בנושא הזה" aria-label="חיפוש בנושא הזה"></div>
     <div id="tPopular"></div>
     <div id="tTags" class="tag-row"></div>
     <p id="tCount" class="muted small"></p>
@@ -42,7 +43,7 @@
     <a href="ask.html">שאל את הרב</a> · <a href="shut.html">מאגר שו"ת</a> · <a href="shop.html">חנות הספרים</a> · <a href="my.html">האזור האישי</a> · <a href="accessibility.html">הצהרת נגישות</a> · <a href="privacy.html">מדיניות פרטיות</a>
     <div>© מכון משפטי ארץ</div>
   </footer>
-  <script type="module" src="js/topic.js?v=20261108"></script>
+  <script type="module" src="js/topic.js?v=20261109"></script>
   <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
 </body>
 </html>

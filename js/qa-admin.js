@@ -1,6 +1,6 @@
 // ===== ממשק הניהול – נתוני מאגר השו"ת, חיפושים בלי תוצאות, דפים סטטיים ומפת אתר =====
 import { collection, doc, getDocs, writeBatch, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { db, esc, toDate, fmtDate, sanitizeRich, linkify, normText } from "./common.js?v=20261108";
+import { db, esc, toDate, fmtDate, sanitizeRich, linkify, normText } from "./common.js?v=20261109";
 
 const tagsOf = (q) => (q.tags || []).filter((g) => g !== "ארכיון");
 const titleOf = (q) => q.title || (String(q.publicText || q.text || "").slice(0, 110));

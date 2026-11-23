@@ -1,7 +1,7 @@
 // ===== דף נושא: קטגוריה (topic.html?c=...) או תגית (topic.html?tag=...) =====
 import { collection, getDocs, getDoc, doc, query, where } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { db, configReady, esc, setupMissingNotice, loadTaxonomy } from "./common.js?v=20261108";
-import { tagsOf, titleOf, qPageUrl, topicUrl, tagUrl, indexOf, matches, highlight, logMiss } from "./qa-public.js?v=20261108";
+import { db, configReady, esc, setupMissingNotice, loadTaxonomy } from "./common.js?v=20261109";
+import { tagsOf, titleOf, qPageUrl, topicUrl, tagUrl, indexOf, matches, highlight, logMiss } from "./qa-public.js?v=20261109";
 
 const $ = (id) => document.getElementById(id);
 const P = new URLSearchParams(location.search), CAT = P.get("c") || "", TAG = P.get("tag") || "";

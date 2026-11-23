@@ -1,7 +1,7 @@
 // ===== דף שאלה בודדת (q.html?id=... או דף סטטי q/<id>.html) =====
 import { doc, getDoc, getDocs, collection, query, where, limit } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { db, configReady, esc, fmtDate, setupMissingNotice, sanitizeRich, linkify } from "./common.js?v=20261108";
-import { ROOT, tagsOf, titleOf, qPageUrl, shareUrl, topicUrl, tagUrl, rabbiUrl, askUrl, similarTo, countView, cardRow, saveBtn, bindSave } from "./qa-public.js?v=20261108";
+import { db, configReady, esc, fmtDate, setupMissingNotice, sanitizeRich, linkify } from "./common.js?v=20261109";
+import { ROOT, tagsOf, titleOf, qPageUrl, shareUrl, topicUrl, tagUrl, rabbiUrl, askUrl, similarTo, countView, cardRow, saveBtn, bindSave } from "./qa-public.js?v=20261109";
 
 const $ = (id) => document.getElementById(id);
 const id = window.QID || new URLSearchParams(location.search).get("id");

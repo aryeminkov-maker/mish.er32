@@ -16,26 +16,34 @@
   <link rel="apple-touch-icon" href="img/icon-192.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#c19937">
-  <link rel="stylesheet" href="css/style.css?v=20261108">
+  <link rel="stylesheet" href="css/style.css?v=20261109">
 </head>
 <body>
   <a class="skip-link" href="#content">דילוג לתוכן</a>
-  <header class="public-head">
+  <header class="public-head m-compact">
     <picture><source srcset="img/logo-light.png" media="(prefers-color-scheme: dark)"><img src="img/logo.png" class="logo-img" width="140" height="48" alt="מכון משפטי ארץ"></picture>
     <h1>מאגר שו"ת</h1>
-    <p><a href="ask.html">לשאלה חדשה</a></p>
+    <p class="head-cta"><a href="ask.html">לשאלה חדשה</a></p>
   </header>
   <main id="content">
     <div id="setupView"></div>
     <div class="card medium shut-filters" style="margin-top:0">
-      <div class="row">
-        <input id="search" class="grow" type="search" placeholder="חיפוש בשאלות ובתשובות (למשל: שכירות מזגן)" aria-label="חיפוש בשאלות ובתשובות">
-        <select id="topic" style="width:auto" aria-label="סינון לפי קטגוריה"></select>
-        <select id="sort" style="width:auto" aria-label="מיון"><option value="new">החדשות קודם</option><option value="abc">לפי א-ב</option></select>
+      <div class="search-row">
+        <input id="search" type="search" placeholder="חיפוש בשאלות ובתשובות (למשל: שכירות מזגן)" aria-label="חיפוש בשאלות ובתשובות">
+        <button type="button" id="filterBtn" class="filter-btn" aria-expanded="false" aria-controls="filterSheet">סינון <span id="filterN" class="filter-n"></span></button>
+      </div>
+      <div id="filterSheet" class="filter-sheet" aria-label="סינון ומיון">
+        <div class="sheet-head"><b>סינון ומיון</b><button type="button" class="link" id="sheetClose" aria-label="סגירה">✕</button></div>
+        <label class="sheet-label" for="topic">קטגוריה</label>
+        <select id="topic" aria-label="סינון לפי קטגוריה"></select>
+        <label class="sheet-label" for="sort">מיון</label>
+        <select id="sort" aria-label="מיון"><option value="new">החדשות קודם</option><option value="abc">לפי א-ב</option></select>
+        <div id="popular" class="tag-row"></div>
+        <button type="button" class="primary sheet-done" id="sheetDone">הצגת תוצאות</button>
       </div>
       <div id="active" class="tag-row" aria-live="polite"></div>
-      <div id="popular" class="tag-row"></div>
     </div>
+    <div class="sheet-backdrop" id="sheetBackdrop" hidden></div>
     <nav id="topics" class="topics-nav" aria-label="נושאים"></nav>
     <div class="shut-list">
       <div id="popularBox"></div>
@@ -49,7 +57,7 @@
     <a href="ask.html">שאל את הרב</a> · <a href="shut.html">מאגר שו"ת</a> · <a href="shop.html">חנות הספרים</a> · <a href="my.html">האזור האישי</a> · <a href="accessibility.html">הצהרת נגישות</a> · <a href="privacy.html">מדיניות פרטיות</a>
     <div>© מכון משפטי ארץ</div>
   </footer>
-  <script type="module" src="js/archive.js?v=20261108"></script>
+  <script type="module" src="js/archive.js?v=20261109"></script>
   <script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));</script>
 </body>
 </html>

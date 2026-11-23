@@ -1,8 +1,8 @@
 // ===== מאגר שו"ת ציבורי =====
 import { collection, getDocs, getDoc, doc, query, orderBy } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { db, configReady, esc, fmtDate, setupMissingNotice, loadTaxonomy, sanitizeRich, normText, linkify } from "./common.js?v=20261108";
+import { db, configReady, esc, fmtDate, setupMissingNotice, loadTaxonomy, sanitizeRich, normText, linkify } from "./common.js?v=20261109";
 import { tagsOf, titleOf, qPageUrl, shareUrl, topicUrl, askUrl, similarTo, countView, indexOf, matches, highlight, didYouMean, wordsIn,
-  logMiss, saved, saveBtn, bindSave } from "./qa-public.js?v=20261108";
+  logMiss, saved, saveBtn, bindSave } from "./qa-public.js?v=20261109";
 
 const $ = (id) => document.getElementById(id);
 const PAGE = 30;
@@ -28,6 +28,17 @@ if (!configReady) {
     missTm = setTimeout(() => { if (ALL.length && !filtered().length) logMiss($("search").value, $("topic").value); }, 2500);
   };
   $("topic").onchange = () => { shown = PAGE; render(); };
+  if (matchMedia("(max-width: 640px)").matches) $("search").placeholder = "חיפוש במאגר...";
+  // חלון הסינון (בנייד נפתח מלמטה; במחשב הכול גלוי בשורה)
+  const sheet = (open) => {
+    document.body.classList.toggle("sheet-open", open);
+    $("filterBtn").setAttribute("aria-expanded", open);
+    $("sheetBackdrop").hidden = !open;
+    if (open) $("topic").focus();
+  };
+  $("filterBtn").onclick = () => sheet(!document.body.classList.contains("sheet-open"));
+  [$("sheetClose"), $("sheetDone"), $("sheetBackdrop")].forEach((b) => (b.onclick = () => sheet(false)));
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && document.body.classList.contains("sheet-open")) sheet(false); });
   $("sort").onchange = render;
   const params = new URLSearchParams(location.search);
   if (params.get("q")) $("search").value = params.get("q");
@@ -78,7 +89,7 @@ function drawPopular() {
 
 const toTop = () => document.querySelector(".shut-filters")?.scrollIntoView({ behavior: "smooth", block: "start" });
 function setRabbi(r) { F.rabbi = r; shown = PAGE; render(); toTop(); }
-function setTag(t) { F.tag = t; shown = PAGE; render(); toTop(); }
+function setTag(t) { F.tag = t; shown = PAGE; document.body.classList.remove("sheet-open"); if ($("sheetBackdrop")) $("sheetBackdrop").hidden = true; render(); toTop(); }
 function bindTagButtons(root) {
   root.querySelectorAll("[data-tagf]").forEach((b) => (b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); setTag(b.dataset.tagf); }));
   root.querySelectorAll("[data-rabbif]").forEach((b) => (b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); setRabbi(b.dataset.rabbif); }));
@@ -104,6 +115,13 @@ function drawChips() {
   const nSaved = saved.all().length;
   if (!F.saved && nSaved) chips.push(`<button type="button" class="chip" id="showSaved">★ השמורים שלי (${nSaved})</button>`);
   $("active").innerHTML = chips.join(" ");
+  // מספר הסינונים הפעילים – על כפתור "סינון"
+  const n = [$("topic").value, F.tag, F.rabbi, F.saved, $("sort").value !== "new"].filter(Boolean).length;
+  $("filterN").textContent = n ? `(${n})` : "";
+  if ($("topic").value && !chips.some((c) => c.includes("clearTopic"))) {
+    $("active").insertAdjacentHTML("afterbegin", `<button type="button" class="chip on m-only" id="clearTopic">${esc($("topic").value)} ✕</button> `);
+    $("clearTopic").onclick = () => { $("topic").value = ""; shown = PAGE; render(); };
+  }
   if ($("clearTag")) $("clearTag").onclick = () => setTag("");
   if ($("clearRabbi")) $("clearRabbi").onclick = () => setRabbi("");
   if ($("clearSaved")) $("clearSaved").onclick = () => { F.saved = false; render(); };
@@ -115,8 +133,10 @@ function render() {
   drawChips();
 
   const noFilter = !F.tag && !F.rabbi && !F.saved && !$("topic").value && !q;
-  $("popularBox").innerHTML = noFilter && POPULAR.length ? `<div class="card popular-box"><b>השאלות הנצפות ביותר</b><ol>${POPULAR.map((y) => `<li><a href="${qPageUrl(y.id)}" data-goto="${esc(y.id)}">${esc(titleOf(y))}</a></li>`).join("")}</ol></div>` : "";
-  $("popularBox").querySelectorAll("[data-goto]").forEach((a) => (a.onclick = (e) => { e.preventDefault(); goTo(a.dataset.goto); }));
+  const popHtml = noFilter && POPULAR.length ? `<div class="card popular-box"><b>השאלות הנצפות ביותר</b><ol>${POPULAR.map((y) => `<li><a href="${qPageUrl(y.id)}" data-goto="${esc(y.id)}">${esc(titleOf(y))}</a></li>`).join("")}</ol></div>` : "";
+  // בנייד – אחרי 5 השאלות הראשונות; במחשב – מעל הרשימה
+  const mobile = matchMedia("(max-width: 640px)").matches;
+  $("popularBox").innerHTML = mobile ? "" : popHtml;
 
   $("count").textContent = `${list.length} שאלות` + (list.length > shown ? ` · מוצגות ${shown} הראשונות` : "");
   const hl = (s) => (q ? highlight(esc(s), q) : esc(s));
@@ -129,13 +149,14 @@ function render() {
         ${excerptOf(x) ? `<span class="qa-excerpt">${hl(excerptOf(x))}</span>` : ""}
       </summary>
       <div class="qa-body"></div>
-    </details>`).join("") || `<div class="card empty-res"><p><b>לא נמצאו שאלות.</b></p>
+    </details>`).map((h, i) => (mobile && i === 5 ? popHtml + h : h)).join("") || `<div class="card empty-res"><p><b>לא נמצאו שאלות.</b></p>
       ${dym ? `<p>האם התכוונת ל: <button type="button" class="link" id="dym">${esc(dym)}</button>?</p>` : ""}
       <p class="muted">נסו מילים אחרות או פחות מילים – או <a href="${askUrl()}">שלחו את השאלה לרבני המכון</a>.</p></div>`;
   if ($("dym")) $("dym").onclick = () => { $("search").value = dym; render(); };
   $("more").innerHTML = list.length > shown ? `<button id="moreBtn">הצגת עוד ${Math.min(PAGE, list.length - shown)} שאלות</button>` : "";
   if ($("moreBtn")) $("moreBtn").onclick = () => { shown += PAGE; render(); };
   bindTagButtons($("list"));
+  document.querySelectorAll(".popular-box [data-goto]").forEach((a) => (a.onclick = (e) => { e.preventDefault(); goTo(a.dataset.goto); }));
   document.querySelectorAll("details.qa").forEach((d) => d.addEventListener("toggle", () => { if (d.open) fillBody(d); }));
   const want = new URLSearchParams(location.search).get("id") || (location.hash.startsWith("#q-") ? decodeURIComponent(location.hash.slice(3)) : "");
   if (want) { const el = document.getElementById("q-" + want); if (el && !el.dataset.jumped) { el.dataset.jumped = "1"; el.open = true; fillBody(el); el.scrollIntoView(); } }
